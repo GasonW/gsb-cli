@@ -1,5 +1,5 @@
 {
-  "name": "@bandai/gsb-cli",
+  "name": "gsb-cli",
   "version": "0.1.0",
   "description": "Command line client for the ChatBuy GSB evaluation platform.",
   "type": "module",

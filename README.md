@@ -35,13 +35,13 @@ npm -v
 The package is hosted in this public GitHub repository. Install it globally with npm:
 
 ```bash
-npm install -g github:GasonW/chatbuy-gsb-cli
+npm install -g github:GasonW/gsb-cli
 ```
 
 Equivalent HTTPS form:
 
 ```bash
-npm install -g git+https://github.com/GasonW/chatbuy-gsb-cli.git
+npm install -g git+https://github.com/GasonW/gsb-cli.git
 ```
 
 Verify the install:
@@ -56,7 +56,7 @@ gsb-cli --help
 Use `npx` when you want a one-off run:
 
 ```bash
-npx github:GasonW/chatbuy-gsb-cli --help
+npx github:GasonW/gsb-cli --help
 ```
 
 ### Update
@@ -64,20 +64,20 @@ npx github:GasonW/chatbuy-gsb-cli --help
 If installed from GitHub:
 
 ```bash
-npm update -g @bandai/gsb-cli
+npm update -g gsb-cli
 ```
 
 If npm does not pick up the latest GitHub commit, reinstall:
 
 ```bash
-npm uninstall -g @bandai/gsb-cli
-npm install -g github:GasonW/chatbuy-gsb-cli
+npm uninstall -g gsb-cli
+npm install -g github:GasonW/gsb-cli
 ```
 
 ### Uninstall
 
 ```bash
-npm uninstall -g @bandai/gsb-cli
+npm uninstall -g gsb-cli
 ```
 
 ### Future npm Registry Install
@@ -85,13 +85,13 @@ npm uninstall -g @bandai/gsb-cli
 If this package is later published to npm or an internal npm registry, installation becomes:
 
 ```bash
-npm install -g @bandai/gsb-cli
+npm install -g gsb-cli
 ```
 
 For a private/internal registry:
 
 ```bash
-npm install -g @bandai/gsb-cli --registry=https://<registry-url>
+npm install -g gsb-cli --registry=https://<registry-url>
 ```
 
 ## Quick Start
@@ -251,7 +251,7 @@ npm bin -g
 Make sure that directory is in your `PATH`, then reinstall:
 
 ```bash
-npm install -g github:GasonW/chatbuy-gsb-cli
+npm install -g github:GasonW/gsb-cli
 ```
 
 ### `doctor` says the platform is unreachable
@@ -280,8 +280,8 @@ The remote server cannot read paths like `/Users/me/data/baseline` on your lapto
 Clone this CLI repository only if you are developing the CLI itself:
 
 ```bash
-git clone https://github.com/GasonW/chatbuy-gsb-cli.git
-cd chatbuy-gsb-cli
+git clone https://github.com/GasonW/gsb-cli.git
+cd gsb-cli
 npm install
 npm test
 ```
