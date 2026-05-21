@@ -35,13 +35,15 @@ npm -v
 The package is hosted in this public GitHub repository. Install it globally with npm:
 
 ```bash
-npm install -g github:GasonW/gsb-cli
+npm install -g https://github.com/GasonW/gsb-cli/archive/refs/heads/main.tar.gz
 ```
 
-Equivalent HTTPS form:
+This installs the latest `main` branch.
+
+You can also install a specific commit or tag:
 
 ```bash
-npm install -g git+https://github.com/GasonW/gsb-cli.git
+npm install -g https://github.com/GasonW/gsb-cli/archive/<tag-or-commit>.tar.gz
 ```
 
 Verify the install:
@@ -56,22 +58,16 @@ gsb-cli --help
 Use `npx` when you want a one-off run:
 
 ```bash
-npx github:GasonW/gsb-cli --help
+npx --yes https://github.com/GasonW/gsb-cli/archive/refs/heads/main.tar.gz --help
 ```
 
 ### Update
 
-If installed from GitHub:
-
-```bash
-npm update -g gsb-cli
-```
-
-If npm does not pick up the latest GitHub commit, reinstall:
+Reinstall from the latest GitHub archive:
 
 ```bash
 npm uninstall -g gsb-cli
-npm install -g github:GasonW/gsb-cli
+npm install -g https://github.com/GasonW/gsb-cli/archive/refs/heads/main.tar.gz
 ```
 
 ### Uninstall
@@ -251,7 +247,7 @@ npm bin -g
 Make sure that directory is in your `PATH`, then reinstall:
 
 ```bash
-npm install -g github:GasonW/gsb-cli
+npm install -g https://github.com/GasonW/gsb-cli/archive/refs/heads/main.tar.gz
 ```
 
 ### `doctor` says the platform is unreachable
