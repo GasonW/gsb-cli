@@ -79,6 +79,85 @@ test("remote task bind refuses local paths and tells user to upload first", asyn
   assert.equal(issues[0]?.code, "DATASET_REF_LOCAL_PATH_FOR_REMOTE");
 });
 
+test("CLI reads and downloads archived task reports from the remote platform", async () => {
+  const seen: Array<string> = [];
+  const server = createServer(async (req, res) => {
+    seen.push(`${req.method} ${req.url}`);
+    if (req.method === "GET" && req.url === "/tasks/task_1/api/reports") {
+      return sendJson(res, {
+        exists: true,
+        latest_html: "decision_report.html",
+        latest_json: "decision_summary.json",
+        url: "/tasks/task_1/report/decision_report.html",
+        summary_url: "/tasks/task_1/report/decision_summary.json",
+        html_files: ["decision_report.html"],
+        json_files: ["decision_summary.json"],
+      });
+    }
+    if (req.method === "GET" && req.url === "/tasks/task_1/report/decision_report.html") {
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/html; charset=utf-8");
+      res.end("<html><body>report</body></html>");
+      return;
+    }
+    return sendJson(res, { error: "not found" }, 404);
+  });
+  await listen(server);
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const outDir = mkdtempSync(join(tmpdir(), "gsb-cli-report-"));
+    const outFile = join(outDir, "report.html");
+    const env = { ...process.env, GSB_CLI_SESSION: join(tmpdir(), "unused-gsb-session.json") };
+
+    const status = await runCli(["report", "status", "task_1", "--base-url", baseUrl, "--json"], { env });
+    assert.equal(status.exitCode, 0);
+    assert.equal(status.payload.message, "已找到归档分析报告");
+    assert.deepEqual(status.payload.urls, {
+      report: `${baseUrl}/tasks/task_1/report/decision_report.html`,
+      summary: `${baseUrl}/tasks/task_1/report/decision_summary.json`,
+    });
+
+    const download = await runCli(["report", "download", "task_1", "--base-url", baseUrl, "--type", "html", "--output", outFile, "--json"], { env });
+    assert.equal(download.exitCode, 0);
+    assert.equal(readFileSync(outFile, "utf8"), "<html><body>report</body></html>");
+    assert.deepEqual(seen, [
+      "GET /tasks/task_1/api/reports",
+      "GET /tasks/task_1/api/reports",
+      "GET /tasks/task_1/report/decision_report.html",
+    ]);
+  } finally {
+    await close(server);
+  }
+});
+
+test("CLI archives a completed task through the remote platform API", async () => {
+  const seen: Array<string> = [];
+  const server = createServer(async (req, res) => {
+    seen.push(`${req.method} ${req.url}`);
+    if (req.method === "POST" && req.url === "/api/tasks/task_1/archive") {
+      return sendJson(res, { ok: true, status: "archived" });
+    }
+    return sendJson(res, { error: "not found" }, 404);
+  });
+  await listen(server);
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const env = { ...process.env, GSB_CLI_SESSION: join(tmpdir(), "unused-gsb-session.json") };
+
+    const result = await runCli(["task", "archive", "task_1", "--base-url", baseUrl, "--json"], { env });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.payload.status, "archived");
+    assert.deepEqual(seen, ["POST /api/tasks/task_1/archive"]);
+  } finally {
+    await close(server);
+  }
+});
+
 function readJson(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];

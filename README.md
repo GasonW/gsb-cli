@@ -170,6 +170,20 @@ gsb-cli results summary <task-id> --all --json
 gsb-cli results export <task-id> --format json --output ./exports --json
 ```
 
+如果平台侧已经生成并归档了分析报告，可以查看和下载：
+
+```bash
+gsb-cli report status <task-id> --json
+gsb-cli report download <task-id> --type html --output ./decision_report.html --json
+gsb-cli report download <task-id> --type json --output ./decision_summary.json --json
+```
+
+如果任务已经完成，也可以把任务归档：
+
+```bash
+gsb-cli task archive <task-id> --json
+```
+
 ## 数据格式
 
 每个版本是一个目录，每条 case 是目录第一层的一个 JSON 文件。
@@ -223,7 +237,11 @@ gsb-cli task renderer upload <task-id> ./renderer.js --json
 | 配置任务 | `gsb-cli task setup <task-id> --min-per-person 0` |
 | 发布前检查 | `gsb-cli task preflight <task-id>` |
 | 发布任务 | `gsb-cli task publish <task-id>` |
+| 归档任务 | `gsb-cli task archive <task-id>` |
 | 上传 renderer | `gsb-cli task renderer upload <task-id> ./renderer.js` |
+| 查看归档报告 | `gsb-cli report status <task-id>` |
+| 下载 HTML 报告 | `gsb-cli report download <task-id> --type html --output ./decision_report.html` |
+| 下载 JSON 摘要 | `gsb-cli report download <task-id> --type json --output ./decision_summary.json` |
 | 查看汇总 | `gsb-cli results summary <task-id> --all` |
 | 导出结果 | `gsb-cli results export <task-id> --format json --output ./exports` |
 

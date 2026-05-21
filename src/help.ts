@@ -38,6 +38,11 @@ Commands:
   task renderer clear <task-id>
   task preflight <task-id>
   task publish <task-id>
+  task archive <task-id>
+
+  report status <task-id>
+  report url <task-id>
+  report download <task-id> --type html --output ./report.html
 
   results summary <task-id> --all
   results export <task-id> --format json --output ./exports

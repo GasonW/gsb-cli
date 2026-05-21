@@ -79,8 +79,18 @@ async function dispatch(globals, args) {
             return cmdTaskPreflight(globals, rest);
         if (subcommand === "publish")
             return cmdTaskPublish(globals, rest);
+        if (subcommand === "archive")
+            return cmdTaskArchive(globals, rest);
         if (subcommand === "renderer")
             return cmdTaskRenderer(globals, args.slice(2));
+    }
+    if (command === "report") {
+        if (subcommand === "status")
+            return cmdReportStatus(globals, rest);
+        if (subcommand === "url")
+            return cmdReportStatus(globals, rest);
+        if (subcommand === "download")
+            return cmdReportDownload(globals, rest);
     }
     if (command === "results") {
         if (subcommand === "summary")
@@ -531,6 +541,28 @@ async function cmdTaskPublish(globals, args) {
         throw error;
     }
 }
+async function cmdTaskArchive(globals, args) {
+    const taskId = requireArg(args, 0, "task-id");
+    const client = await buildClient(globals);
+    try {
+        const data = await client.request("POST", `/api/tasks/${encodeURIComponent(taskId)}/archive`, {});
+        return {
+            payload: {
+                ok: true,
+                message: "任务已归档",
+                task_id: taskId,
+                status: data.status ?? "archived",
+                server_response: data,
+            },
+            exitCode: 0,
+        };
+    }
+    catch (error) {
+        if (error instanceof ApiError)
+            return apiFailurePayload(error, "归档任务", globals);
+        throw error;
+    }
+}
 async function cmdTaskRenderer(globals, args) {
     const subcommand = args[0];
     const taskId = requireArg(args, 1, "task-id");
@@ -589,6 +621,73 @@ async function cmdTaskRenderer(globals, args) {
     }
     throw new CliUsageError("unknown task renderer command");
 }
+async function cmdReportStatus(globals, args) {
+    const taskId = requireArg(args, 0, "task-id");
+    const client = await buildClient(globals);
+    try {
+        const report = await getReportInfo(client, taskId);
+        return {
+            payload: {
+                ok: true,
+                message: report.exists ? "已找到归档分析报告" : "暂无归档分析报告",
+                task_id: taskId,
+                report,
+                urls: buildReportUrls(client.baseUrl, report),
+            },
+            exitCode: 0,
+        };
+    }
+    catch (error) {
+        if (error instanceof ApiError)
+            return apiFailurePayload(error, "读取归档分析报告", globals);
+        throw error;
+    }
+}
+async function cmdReportDownload(globals, args) {
+    const taskId = requireArg(args, 0, "task-id");
+    const reader = new OptionReader(args.slice(1));
+    const type = reader.takeString("type", "html");
+    const file = reader.takeOptionalString("file");
+    const outputArg = reader.takeOptionalString("output");
+    reader.requireNoUnknown();
+    if (!["html", "json"].includes(type)) {
+        throw new CliUsageError("--type must be html or json");
+    }
+    const client = await buildClient(globals);
+    try {
+        const report = await getReportInfo(client, taskId);
+        if (!report.exists) {
+            const item = issue("REPORT_NOT_FOUND", "error", "暂无归档分析报告", { task_id: taskId, report }, "平台只会展示已经写入任务 report 目录的归档报告；CLI 不会在本地生成远端报告。", "先在平台侧生成报告，确认任务管理页能看到“分析报告”，再重新运行 report download。", redactedArgv(globals.rawArgv));
+            return { payload: { ok: false, message: item.problem, issues: [item], report }, exitCode: 1 };
+        }
+        const selected = selectReportFile(taskId, report, type, file);
+        const downloaded = await client.request("GET", selected.url, undefined, { expectBytes: true });
+        let output = outputArg ? resolve(expandHome(outputArg)) : resolve(globals.cwd, selected.fileName);
+        if (existsSync(output) && statSync(output).isDirectory()) {
+            output = resolve(output, selected.fileName);
+        }
+        mkdirSync(dirname(output), { recursive: true });
+        writeFileSync(output, downloaded.bytes);
+        return {
+            payload: {
+                ok: true,
+                message: "归档分析报告已下载",
+                task_id: taskId,
+                report_type: type,
+                file_name: selected.fileName,
+                output_path: output,
+                bytes: downloaded.bytes.length,
+                urls: buildReportUrls(client.baseUrl, report),
+            },
+            exitCode: 0,
+        };
+    }
+    catch (error) {
+        if (error instanceof ApiError)
+            return apiFailurePayload(error, "下载归档分析报告", globals);
+        throw error;
+    }
+}
 async function cmdResultsSummary(globals, args) {
     const taskId = requireArg(args, 0, "task-id");
     const reader = new OptionReader(args.slice(1));
@@ -605,6 +704,40 @@ async function cmdResultsSummary(globals, args) {
             return apiFailurePayload(error, "读取评估结论", globals);
         throw error;
     }
+}
+async function getReportInfo(client, taskId) {
+    return client.request("GET", `/tasks/${encodeURIComponent(taskId)}/api/reports`);
+}
+function buildReportUrls(baseUrl, report) {
+    const urls = {};
+    if (typeof report.url === "string" && report.url) {
+        urls.report = absoluteUrl(baseUrl, report.url);
+    }
+    if (typeof report.summary_url === "string" && report.summary_url) {
+        urls.summary = absoluteUrl(baseUrl, report.summary_url);
+    }
+    return urls;
+}
+function selectReportFile(taskId, report, type, file) {
+    const selectedFile = file || String(type === "json" ? report.latest_json || "" : report.latest_html || "");
+    if (!selectedFile) {
+        throw new CliUsageError(`no archived ${type} report found for task ${taskId}`);
+    }
+    const fileName = basename(selectedFile);
+    const expectedSuffix = type === "json" ? ".json" : ".html";
+    if (!fileName.endsWith(expectedSuffix)) {
+        throw new CliUsageError(`--type ${type} requires a ${expectedSuffix} report file`);
+    }
+    return {
+        fileName,
+        url: `/tasks/${encodeURIComponent(taskId)}/report/${encodeURIComponent(fileName)}`,
+    };
+}
+function absoluteUrl(baseUrl, url) {
+    if (/^https?:\/\//i.test(url)) {
+        return url;
+    }
+    return `${baseUrl}/${url.replace(/^\/+/, "")}`;
 }
 async function cmdResultsExport(globals, args) {
     const taskId = requireArg(args, 0, "task-id");
