@@ -1,0 +1,34 @@
+{
+  "name": "@bandai/gsb-cli",
+  "version": "0.1.0",
+  "description": "Command line client for the ChatBuy GSB evaluation platform.",
+  "type": "module",
+  "bin": {
+    "gsb-cli": "./dist/src/index.js"
+  },
+  "main": "./dist/src/index.js",
+  "files": [
+    "dist/src",
+    "README.md",
+    "docs"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "keywords": [
+    "gsb",
+    "evaluation",
+    "cli"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "typescript": "^5.8.3"
+  }
+}
