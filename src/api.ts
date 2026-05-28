@@ -81,6 +81,10 @@ export class ApiClient {
     return this.request<JsonObject>("POST", "/api/auth/login", { username, password });
   }
 
+  async register(username: string, password: string): Promise<JsonObject> {
+    return this.request<JsonObject>("POST", "/api/auth/register", { username, password });
+  }
+
   private url(path: string): string {
     if (/^https?:\/\//i.test(path)) {
       return path;

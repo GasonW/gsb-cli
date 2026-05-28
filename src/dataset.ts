@@ -117,10 +117,15 @@ export function inspectDatasetDir(inputPath: string): DatasetInfo {
   return info;
 }
 
+export interface DatasetCheckOptions {
+  verbose?: boolean;
+}
+
 export function datasetCheckPayload(
   pathA: string | undefined,
   pathB: string | undefined,
   continueCommand: string,
+  options: DatasetCheckOptions = {},
 ): JsonObject {
   const issues: JsonObject[] = [];
   const result: JsonObject = {
@@ -128,24 +133,29 @@ export function datasetCheckPayload(
     format_guidance: FORMAT_GUIDANCE,
     datasets: {},
   };
-  const datasets = result.datasets as Record<string, DatasetInfo>;
+  const details: Record<string, DatasetInfo> = {};
+  const datasets = result.datasets as Record<string, JsonObject | DatasetInfo>;
 
   if (pathA) {
     const infoA = inspectDatasetDir(pathA);
-    datasets.a = infoA;
+    details.a = infoA;
+    datasets.a = options.verbose ? infoA : summarizeDatasetInfo(infoA);
     issues.push(...issuesForDataset(infoA, pathB ? "版本 A 目录（--a）" : "输入数据目录", continueCommand));
   }
   if (pathB) {
     const infoB = inspectDatasetDir(pathB);
-    datasets.b = infoB;
+    details.b = infoB;
+    datasets.b = options.verbose ? infoB : summarizeDatasetInfo(infoB);
     issues.push(...issuesForDataset(infoB, "版本 B 目录（--b）", continueCommand));
   }
   if (pathA && pathB) {
-    const validA = new Set((datasets.a?.valid_json_files ?? []).map((name) => stripJsonSuffix(name)));
-    const validB = new Set((datasets.b?.valid_json_files ?? []).map((name) => stripJsonSuffix(name)));
+    const validA = new Set((details.a?.valid_json_files ?? []).map((name) => stripJsonSuffix(name)));
+    const validB = new Set((details.b?.valid_json_files ?? []).map((name) => stripJsonSuffix(name)));
     const common = [...validA].filter((value) => validB.has(value)).sort();
     const onlyA = [...validA].filter((value) => !validB.has(value)).sort();
     const onlyB = [...validB].filter((value) => !validA.has(value)).sort();
+    const defaultRenderableA = details.a?.recognized_default_field_files ?? 0;
+    const defaultRenderableB = details.b?.recognized_default_field_files ?? 0;
     const pair = {
       count_a: validA.size,
       count_b: validB.size,
@@ -155,6 +165,8 @@ export function datasetCheckPayload(
       sample_common: sample(common),
       sample_only_a: sample(onlyA),
       sample_only_b: sample(onlyB),
+      default_renderable_a: defaultRenderableA,
+      default_renderable_b: defaultRenderableB,
     };
     result.pair = pair;
     if (validA.size && validB.size && !common.length) {
@@ -185,6 +197,34 @@ export function datasetCheckPayload(
   result.ok = !hasErrors(issues);
   result.message = result.ok ? "数据检查通过" : "数据检查失败";
   return result;
+}
+
+function summarizeDatasetInfo(info: DatasetInfo): JsonObject {
+  const sampleKeys: JsonObject = {};
+  for (const name of sample(info.valid_json_files, 3)) {
+    sampleKeys[name] = info.sample_keys[name] ?? [];
+  }
+  return {
+    path: info.path,
+    exists: info.exists,
+    is_dir: info.is_dir,
+    json_count: info.json_files.length,
+    valid_json_count: info.valid_json_files.length,
+    invalid_json_count: info.invalid_json_files.length,
+    non_object_json_count: info.non_object_json_files.length,
+    non_json_count: info.non_json_files.length,
+    nested_json_count: info.nested_json_files.length,
+    convertible_count: info.convertible_files.length,
+    recognized_default_field_files: info.recognized_default_field_files,
+    sample_valid_json_files: sample(info.valid_json_files, 10),
+    sample_invalid_json_files: sample(info.invalid_json_files, 5),
+    sample_non_object_json_files: sample(info.non_object_json_files, 5),
+    sample_only_non_json_files: sample(info.non_json_files, 5),
+    sample_nested_json_files: sample(info.nested_json_files, 5),
+    sample_convertible_files: sample(info.convertible_files, 5),
+    sample_keys: sampleKeys,
+    conversion_plan: info.conversion_plan,
+  };
 }
 
 export function validFileMap(info: DatasetInfo): Record<string, string> {

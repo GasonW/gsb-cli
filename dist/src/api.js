@@ -54,6 +54,9 @@ export class ApiClient {
     async login(username, password) {
         return this.request("POST", "/api/auth/login", { username, password });
     }
+    async register(username, password) {
+        return this.request("POST", "/api/auth/register", { username, password });
+    }
     url(path) {
         if (/^https?:\/\//i.test(path)) {
             return path;

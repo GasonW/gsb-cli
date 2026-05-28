@@ -65,10 +65,22 @@ node -v
 npm -v
 ```
 
-从 GitHub 安装最新版：
+从 npm 安装：
 
 ```bash
-npm install -g https://github.com/GasonW/gsb-cli/archive/refs/heads/main.tar.gz
+npm install -g gsb-cli
+```
+
+安装包内自带 `gsb-eval` Agent skill。`npm install` 会默认把 skill 复制到 Codex 和 Cursor 的 skills 目录：
+
+- Codex: `~/.codex/skills/gsb-eval`
+- Cursor: `~/.cursor/skills/gsb-eval`
+
+如果只想安装到某一个 Agent，或跳过自动安装：
+
+```bash
+GSB_CLI_SKILL_TARGET=codex npm install -g gsb-cli
+GSB_CLI_SKIP_SKILL_INSTALL=1 npm install -g gsb-cli
 ```
 
 验证：
@@ -76,28 +88,40 @@ npm install -g https://github.com/GasonW/gsb-cli/archive/refs/heads/main.tar.gz
 ```bash
 gsb-cli --version
 gsb-cli --help
+gsb-cli skill status --target all
 ```
 
 一次性运行，不全局安装：
 
 ```bash
-npx --yes https://github.com/GasonW/gsb-cli/archive/refs/heads/main.tar.gz --help
+npx --yes gsb-cli --help
 ```
 
 更新：
 
 ```bash
-npm uninstall -g gsb-cli
+npm install -g gsb-cli@latest
+```
+
+如果需要从 GitHub main 分支安装开发版：
+
+```bash
 npm install -g https://github.com/GasonW/gsb-cli/archive/refs/heads/main.tar.gz
 ```
+
+CLI 会定期检查最新版本并在非 JSON 输出里提示。手动检查：
+
+```bash
+gsb-cli version --check
+```
+
+检查结果默认缓存 24 小时，可用 `GSB_CLI_NO_UPDATE_CHECK=1` 关闭提醒。JSON 输出不会带版本提醒，方便 Agent 稳定解析。
 
 卸载：
 
 ```bash
 npm uninstall -g gsb-cli
 ```
-
-> 说明：当前推荐使用 GitHub archive tarball 安装。这个方式已经验证可用，且不要求使用者本机安装 TypeScript 编译工具。
 
 ## 2 分钟完成一个 GSB 任务
 
@@ -117,6 +141,15 @@ gsb-cli doctor
 
 ```bash
 gsb-cli auth login \
+  --username <user> \
+  --password <password> \
+  --json
+```
+
+如果用户确认没有账号，可以注册并自动保存 session。不要在登录失败后替用户静默注册新账号：
+
+```bash
+gsb-cli auth register \
   --username <user> \
   --password <password> \
   --json
@@ -148,20 +181,70 @@ gsb-cli dataset check --a ./baseline --b ./candidate --json
 gsb-cli dataset upload --a ./baseline --b ./candidate --json
 ```
 
-创建任务：
+同名数据集上传规则：
+
+- 文件名和内容完全一致时，平台直接复用已有 dataset id，返回 `reused: true`。
+- 同名但内容不同或只有部分文件重名时，默认停止上传，要求明确本次目的。
+- 明确复用、覆盖、改名或强制新增时，使用 `--reuse`、`--replace`、`--new-name <name>` 或 `--force-new`。
+
+一站式创建 GSB 任务：
 
 ```bash
-gsb-cli task create --name "candidate vs baseline" --json
+gsb-cli task create-gsb \
+  --name "candidate vs baseline" \
+  --purpose "评估 candidate 相比 baseline 的回答质量和上线风险" \
+  --a <dataset-a-id> \
+  --b <dataset-b-id> \
+  --description-file ./task_description.md \
+  --json
 ```
 
-把上一步返回的 `<task-id>`、`<dataset-a-id>`、`<dataset-b-id>` 填进去：
+`--purpose` 是给任务创建者和管理员回忆任务目的用的备注；`--description` 或 `--description-file` 是给评估者看的评估说明，两者不要混用。`--task-id` 通常可以省略，平台会根据任务名生成存储目录 id。
+
+`task create-gsb` 会串联 `create → bind → setup → config → preflight`。确认无误后发布：
 
 ```bash
-gsb-cli task bind <task-id> --a <dataset-a-id> --b <dataset-b-id> --json
-gsb-cli task setup <task-id> --min-per-person 0 --json
-gsb-cli task preflight <task-id> --json
 gsb-cli task publish <task-id> --json
 ```
+
+如果希望创建后直接发布：
+
+```bash
+gsb-cli task create-gsb \
+  --name "candidate vs baseline" \
+  --purpose "评估 candidate 相比 baseline 的回答质量和上线风险" \
+  --a <dataset-a-id> \
+  --b <dataset-b-id> \
+  --description-file ./task_description.md \
+  --publish \
+  --json
+```
+
+修改已有任务配置：
+
+```bash
+gsb-cli task configure <task-id> \
+  --min-per-person auto \
+  --require-comments false \
+  --transparent-mode admin_only \
+  --stats admin_only \
+  --show-trace false \
+  --json
+```
+
+关键配置项分布：
+
+| 配置项 | 命令 | 说明 |
+| --- | --- | --- |
+| `--min-per-person` | `task create-gsb` / `task configure` | 每位评估者最少评估题数；默认 `auto`，即共同题数的 15%，最小 10，不能超过共同题数；`0` 表示全量 |
+| `--anchor-count` | `task create-gsb` / `task configure` | 锚点题数量；默认 `auto`，即 `min_per_person` 的 10%，最小 3，不能超过可用题数 |
+| `--description` / `--description-file` | `task create-gsb` / `task configure` | 给评估者看的任务说明 |
+| `--transparent-mode` | `task create-gsb` / `task configure` | 版本名可见性，常用 `admin_only` |
+| `--stats` | `task create-gsb` / `task configure` | 统计面板可见性，常用 `admin_only` |
+| `--show-trace` | `task create-gsb` / `task configure` | 是否展示 trace，默认 `false` |
+| `--require-comments` | `task create-gsb` / `task configure` | 是否强制评论必填，默认 `false` |
+
+底层命令 `task create`、`task bind`、`task setup`、`task config` 仍可用于精细控制。Agent 常规使用应优先走 `task create-gsb` 和 `task configure`，避免漏配评论、透明模式、统计权限或 trace 展示。
 
 导出结果：
 
@@ -170,13 +253,16 @@ gsb-cli results summary <task-id> --all --json
 gsb-cli results export <task-id> --format json --output ./exports --json
 ```
 
-如果平台侧已经生成并归档了分析报告，可以查看和下载：
+如果本地已经生成 HTML 报告 / JSON 摘要，可以上传到任务归档；也可以查看和下载平台侧已有报告：
 
 ```bash
+gsb-cli report upload <task-id> ./decision_report.html ./decision_summary.json --json
 gsb-cli report status <task-id> --json
 gsb-cli report download <task-id> --type html --output ./decision_report.html --json
 gsb-cli report download <task-id> --type json --output ./decision_summary.json --json
 ```
+
+`report upload` 会把本地 `.html` 和 `.json` 文本文件写入任务归档。上传需要当前账号有任务管理权限。
 
 如果任务已经完成，也可以把任务归档：
 
@@ -226,19 +312,28 @@ gsb-cli task renderer upload <task-id> ./renderer.js --json
 | 场景 | 命令 |
 | --- | --- |
 | 检查平台 | `gsb-cli doctor` |
+| 检查 CLI 版本 | `gsb-cli version --check` |
+| 查看 skill 安装 | `gsb-cli skill status --target all` |
+| 手动安装 skill | `gsb-cli skill install --target codex --mode copy --force` |
 | 登录 | `gsb-cli auth login --username <user> --password <password>` |
+| 注册账号 | `gsb-cli auth register --username <user> --password <password>` |
 | 查看当前用户 | `gsb-cli auth whoami` |
 | 退出登录 | `gsb-cli auth logout` |
 | 检查数据 | `gsb-cli dataset check --a ./baseline --b ./candidate` |
 | 上传数据 | `gsb-cli dataset upload --a ./baseline --b ./candidate` |
 | 查看数据集 | `gsb-cli dataset list` |
-| 创建任务 | `gsb-cli task create --name "candidate vs baseline"` |
+| 一站式创建任务 | `gsb-cli task create-gsb --name "candidate vs baseline" --purpose "评估 candidate 相比 baseline 的回答质量和上线风险" --a <dataset-a-id> --b <dataset-b-id>` |
+| 查看任务状态 | `gsb-cli task get <task-id>` |
+| 修改任务配置 | `gsb-cli task configure <task-id> --min-per-person auto --require-comments false --show-trace false` |
+| 底层创建任务 | `gsb-cli task create --name "candidate vs baseline" --purpose "评估 candidate 相比 baseline 的回答质量和上线风险"` |
 | 绑定数据 | `gsb-cli task bind <task-id> --a <dataset-a-id> --b <dataset-b-id>` |
-| 配置任务 | `gsb-cli task setup <task-id> --min-per-person 0` |
+| 底层配置任务 | `gsb-cli task setup <task-id> --min-per-person auto` |
+| 底层配置权限/评论 | `gsb-cli task config <task-id> --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false` |
 | 发布前检查 | `gsb-cli task preflight <task-id>` |
 | 发布任务 | `gsb-cli task publish <task-id>` |
 | 归档任务 | `gsb-cli task archive <task-id>` |
 | 上传 renderer | `gsb-cli task renderer upload <task-id> ./renderer.js` |
+| 上传归档报告 | `gsb-cli report upload <task-id> ./decision_report.html ./decision_summary.json` |
 | 查看归档报告 | `gsb-cli report status <task-id>` |
 | 下载 HTML 报告 | `gsb-cli report download <task-id> --type html --output ./decision_report.html` |
 | 下载 JSON 摘要 | `gsb-cli report download <task-id> --type json --output ./decision_summary.json` |
@@ -270,6 +365,24 @@ gsb-cli task renderer upload <task-id> ./renderer.js --json
 ```bash
 export GSB_CLI_SESSION="/path/to/sessions.json"
 ```
+
+## 平台 workspace 映射
+
+这些路径存在于 GSB 平台服务器侧，仅用于排障和理解 CLI 副作用。正常使用时不要绕过 CLI 直接修改。
+
+| CLI 操作 | 平台 workspace 结果 |
+| --- | --- |
+| `dataset upload` | 复制 JSON 到 `workspace/uploads/<username>/<dataset-name>/`，并更新 `workspace/uploads/_meta.json` |
+| `task create-gsb` | 依次执行创建任务、绑定数据快照、保存分配策略、保存 visibility，并运行发布前检查 |
+| `task create` | 创建 `workspace/tasks/<task-id>/`，并更新任务注册表 |
+| `task bind` | 写入 `workspace/tasks/<task-id>/data_a/`、`data_b/` 和版本映射 |
+| `task setup` | 写入 `workspace/tasks/<task-id>/_config.json`，包含分配策略、锚点题、评估维度和 visibility |
+| `task config` | 更新同一个 `_config.json` 中的 `visibility` |
+| `task configure` | 按参数组合更新 `_config.json` 中的分配策略和 visibility，并运行发布前检查 |
+| `task renderer upload` | 写入 `workspace/tasks/<task-id>/renderer.js` |
+| `results export` | 在 `workspace/tasks/<task-id>/exports/` 生成导出文件 |
+| `report upload` | 写入 `workspace/tasks/<task-id>/report/` |
+| 评估者提交 | 写入 `workspace/tasks/<task-id>/rating_result/eval_<user>.json` |
 
 ## 结构化错误
 

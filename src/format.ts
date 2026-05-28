@@ -18,9 +18,29 @@ export function humanText(payload: JsonObject): string {
       lines.push(`${key}: ${String(payload[key])}`);
     }
   }
+  if (isRecord(payload.update)) {
+    lines.push(`update: latest=${payload.update.latest ?? ""} available=${payload.update.available ?? false}`);
+    if (payload.update.update_command) {
+      lines.push(`update command: ${payload.update.update_command}`);
+    }
+  }
+  if (isRecord(payload.skill)) {
+    lines.push(`skill: ${payload.skill.name ?? ""}`);
+    for (const target of asRecordArray(payload.skill.targets)) {
+      const state = target.exists !== undefined ? `exists=${target.exists}` : `removed=${target.removed ?? ""}`;
+      lines.push(`target[${target.target ?? ""}]: ${target.path ?? ""} ${target.mode ? `mode=${target.mode} ` : ""}${state} version=${target.version ?? ""}`);
+    }
+  }
 
   if (isRecord(payload.task)) {
     lines.push(`task: ${payload.task.id ?? ""} | ${payload.task.name ?? ""} | ${payload.task.status ?? ""} | ${payload.task.mode ?? ""}`);
+  }
+  if (isRecord(payload.agent_summary)) {
+    lines.push(`state: ${payload.agent_summary.state ?? ""} | can_publish=${payload.agent_summary.can_publish ?? ""}`);
+  }
+  if (isRecord(payload.datasets) && isRecord(payload.datasets.counts)) {
+    const counts = payload.datasets.counts;
+    lines.push(`datasets: mode=${payload.datasets.mode ?? ""} A=${counts.a ?? ""} B=${counts.b ?? ""} common=${counts.common ?? ""}`);
   }
   if (isRecord(payload.selection)) {
     lines.push(`selection: task=${payload.selection.task_id ?? ""} mode=${payload.selection.data_mode ?? ""} common=${payload.selection.common_count ?? ""}`);
@@ -28,7 +48,7 @@ export function humanText(payload: JsonObject): string {
   if (Array.isArray(payload.uploaded)) {
     for (const item of payload.uploaded) {
       if (isRecord(item)) {
-        lines.push(`uploaded[${item.label ?? ""}]: id=${item.id ?? ""} name=${item.name ?? ""} json_count=${item.json_count ?? ""} path=${item.path ?? ""}`);
+        lines.push(`uploaded[${item.label ?? ""}]: id=${item.id ?? ""} name=${item.name ?? ""} json_count=${item.json_count ?? ""} reused=${item.reused ?? false} replaced=${item.replaced ?? false}`);
       }
     }
   }
@@ -48,7 +68,7 @@ export function humanText(payload: JsonObject): string {
   if (payload.type === "dataset_check" && isRecord(payload.datasets)) {
     for (const [label, info] of Object.entries(payload.datasets)) {
       if (isRecord(info)) {
-        lines.push(`dataset ${label}: ${info.path ?? ""} | json=${arrayLen(info.json_files)} valid=${arrayLen(info.valid_json_files)}`);
+        lines.push(`dataset ${label}: ${info.path ?? ""} | json=${info.json_count ?? arrayLen(info.json_files)} valid=${info.valid_json_count ?? arrayLen(info.valid_json_files)}`);
       }
     }
     if (isRecord(payload.pair)) {
@@ -98,6 +118,12 @@ export function humanText(payload: JsonObject): string {
     for (const cmd of payload.next_commands) {
       lines.push(`next command: ${String(cmd)}`);
     }
+  }
+  if (payload.update_note) {
+    lines.push(String(payload.update_note));
+  }
+  if (payload.restart_note) {
+    lines.push(String(payload.restart_note));
   }
 
   return lines.join("\n");

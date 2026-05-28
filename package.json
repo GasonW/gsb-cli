@@ -1,19 +1,22 @@
 {
   "name": "gsb-cli",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "description": "Command line client for the ChatBuy GSB evaluation platform.",
   "type": "module",
   "bin": {
-    "gsb-cli": "./dist/src/index.js"
+    "gsb-cli": "dist/src/index.js"
   },
   "main": "./dist/src/index.js",
   "files": [
     "dist/src",
     "README.md",
-    "docs"
+    "docs/api-contract.md",
+    "skills",
+    "scripts/postinstall.mjs"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "postinstall": "node scripts/postinstall.mjs",
     "test": "npm run build && node --test dist/test/*.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
