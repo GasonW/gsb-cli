@@ -1,9 +1,24 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-export const CLI_VERSION = "0.1.6";
-export const DEFAULT_BASE_URL = "http://localhost:8888";
+function readPkgVersion(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 10; i++) {
+    const pkgPath = join(dir, "package.json");
+    if (existsSync(pkgPath)) {
+      return (JSON.parse(readFileSync(pkgPath, "utf8")) as { version: string }).version;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return "0.0.0";
+}
+
+export const CLI_VERSION = readPkgVersion();
+export const DEFAULT_BASE_URL = "https://chatbuy-eval-boe.bytedance.net";
 
 const DEFAULT_CACHE_PATH = join(homedir(), ".chatbuy_gsb_eval_cli", "update_check.json");
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;

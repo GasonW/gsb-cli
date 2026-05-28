@@ -1,6 +1,6 @@
 {
   "name": "gsb-cli",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Command line client for the ChatBuy GSB evaluation platform.",
   "type": "module",
   "bin": {

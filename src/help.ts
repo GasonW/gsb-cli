@@ -6,7 +6,7 @@ Usage:
   gsb-cli [global options] <command> [args]
 
 Global options may appear before or after the command:
-  --base-url <url>      GSB platform URL. Defaults to GSB_BASE_URL or http://localhost:8888
+  --base-url <url>      GSB 平台地址。默认 https://chatbuy-eval-boe.bytedance.net（可由 GSB_BASE_URL 覆盖）
   --profile <name>      Local session profile. Defaults to default
   --username <user>     Optional automatic login username
   --password <pass>     Optional automatic login password. Prefer GSB_PASSWORD in automation

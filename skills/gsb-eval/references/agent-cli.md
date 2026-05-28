@@ -8,7 +8,7 @@
 
 | 参数 | 说明 |
 |------|------|
-| `--base-url <url>` | GSB 平台地址，默认 `GSB_BASE_URL` 或 `http://localhost:8888` |
+| `--base-url <url>` | GSB 平台地址，默认 `https://chatbuy-eval-boe.bytedance.net`（可由 `GSB_BASE_URL` 覆盖） |
 | `--profile <name>` | Session 配置文件，默认 `default` |
 | `--username <user>` | 自动登录用户名（自动化场景） |
 | `--password <pass>` | 自动登录密码，优先用 `GSB_PASSWORD` 环境变量 |
@@ -54,7 +54,7 @@ Session 保存在 `~/.chatbuy_gsb_eval_cli/sessions.json`。平台重启后 toke
 
 环境变量方式（CI/自动化）：
 ```bash
-export GSB_BASE_URL="https://<platform-url>"
+export GSB_BASE_URL="https://chatbuy-eval-boe.bytedance.net"
 export GSB_USERNAME="<user>"
 export GSB_PASSWORD="<password>"
 ```

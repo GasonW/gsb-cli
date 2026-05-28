@@ -55,7 +55,7 @@ gsb-cli auth whoami --json
 gsb-cli auth register --base-url <platform-url> --username <user> --password <password> --json
 ```
 
-平台地址默认 `http://localhost:8888`，可通过 `GSB_BASE_URL` 环境变量或 `--base-url` 指定。Session 保存在 `~/.chatbuy_gsb_eval_cli/sessions.json`。平台重启后 401 需重新登录。
+平台地址默认 `https://chatbuy-eval-boe.bytedance.net`，可通过 `GSB_BASE_URL` 环境变量或 `--base-url` 指定。Session 保存在 `~/.chatbuy_gsb_eval_cli/sessions.json`。
 
 ## 数据格式与上传
 
