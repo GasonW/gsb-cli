@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-export const CLI_VERSION = "0.1.4";
+export const CLI_VERSION = "0.1.5";
 export const DEFAULT_BASE_URL = "http://localhost:8888";
 
 const DEFAULT_CACHE_PATH = join(homedir(), ".chatbuy_gsb_eval_cli", "update_check.json");
