@@ -55,7 +55,7 @@ Dataset upload response rules:
 
 `POST /tasks/{task_id}/api/select-dirs` supports two binding shapes:
 
-- Preferred: `{ "dataset_id": "<aidp-jsonl-dataset-id>" }`. The platform copies the raw JSONL to `task/input/` and materializes `data_a/data_b`.
+- Preferred: `{ "dataset_id": "<aidp-jsonl-dataset-id>" }`. The platform copies it to the task root as the sole `input.jsonl` and reads A/B rows directly.
 - Legacy: `{ "dirs": ["<server-dir-a>", "<server-dir-b>"] }`.
 
 Direct browser upload may send exactly one `.jsonl` file as multipart form data to the same endpoint.

@@ -208,10 +208,10 @@ gsb-cli task config <task-id> \
 
 | CLI 操作 | 平台 workspace 结果 |
 | --- | --- |
-| `dataset upload` | 保存一份原始 A/B JSONL，生成可绑定的物化数据，并更新 `workspace/uploads/_meta.json` |
+| `dataset upload` | 保存一份原始 A/B JSONL，并更新 `workspace/uploads/_meta.json` |
 | `task create-gsb` | 创建任务、绑定数据快照、写入分配策略和 visibility，并运行 preflight |
 | `task create` | `workspace/tasks/<task-id>/` + 任务注册表 |
-| `task bind` | `workspace/tasks/<task-id>/input/*.jsonl`、自动物化的 `data_a/data_b` 和版本映射 |
+| `task bind` | `workspace/tasks/<task-id>/input.jsonl` 和版本映射；运行时直接读取 |
 | `task setup` | `workspace/tasks/<task-id>/_config.json` |
 | `task configure` | 更新 `workspace/tasks/<task-id>/_config.json` 中的分配策略和 visibility |
 | `task renderer upload` | `workspace/tasks/<task-id>/renderer.js` |
@@ -220,6 +220,7 @@ gsb-cli task config <task-id> \
 | 评估者提交 | `workspace/tasks/<task-id>/rating_result/eval_<user>.json` |
 
 报告发现以 task 目录为唯一来源；不要为多个 task 生成 workspace 级聚合页、report index 或 report archive。
+同一业务评估也不得按 `aidp` / `chatbuy-eval` 建两个 task；平台差异只记录为同一 task 的执行元数据。
 
 #### 发布前检查
 

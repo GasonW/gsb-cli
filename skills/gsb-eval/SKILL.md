@@ -1,7 +1,6 @@
 ---
 name: gsb-eval
 description: GSB A/B 评估平台操作手册。创建评估任务、上传数据集、回收标注结果、分析评估数据、生成决策报告和 case 分析。通过 gsb-cli 命令行工具操作平台 HTTP API。
-version: 0.1.5
 ---
 
 # GSB Eval Platform
@@ -76,6 +75,10 @@ gsb-cli dataset guide --json
 ```
 
 先跑 `dataset check`。如果返回 `JSONL_*` 错误，按 `next_step` 修数据后再上传。旧双目录命令只用于历史兼容。
+
+一个业务评估只能创建一个 task。task ID 和目录不得按执行平台拆成 `-aidp` / `-chatbuy-eval`
+两份，也不得创建 `aidp/`、`input/`、`data_a/`、`data_b/` 适配目录。平台只在 task 根目录
+保存一个 `input.jsonl` 并直接读取；AIDP 与 ChatBuy Eval 的执行信息属于同一 task 的元数据。
 
 同名数据集上传规则：100% 重复直接复用（`reused: true`）。同名但内容不同时默认失败，按提示使用 `--reuse`、`--replace`、`--new-name <name>` 或 `--force-new`。
 
