@@ -31,8 +31,16 @@
     "magnitude": "much_better",      // much_better | slightly_better | similar
     "quality_rating": "meets",       // exceeds | meets | below（所有场次都有值）
     "comments": {
-      "gpt4_turbo": { "pros": "回答更简洁", "cons": "" },
-      "claude_3_5": { "pros": "", "cons": "参数错误" },
+      "gpt4_turbo": {
+        "pros": "回答更简洁",
+        "cons": "",
+        "items": [{ "feedback_type": "positive", "comment": "回答更简洁", "images": [] }]
+      },
+      "claude_3_5": {
+        "pros": "",
+        "cons": "参数错误",
+        "items": [{ "feedback_type": "negative", "comment": "参数错误", "images": [] }]
+      },
       "general": "整体评价..."
     },
     "left_version": "gpt4_turbo",    // 盲评时左边面板的版本（审计用）
@@ -48,7 +56,8 @@
 - `winner = "similar"` 对应持平判定；通过 `quality_rating` 区分"都好"（exceeds/meets）和"都不好"（below）。
 - `quality_rating` 对**所有**场次都有值（含 similar），反映胜出方或双方共同的绝对质量：
   - `exceeds`（超出预期）/ `meets`（符合预期）/ `below`（低于预期，"矮子里拔高个"）
-- 评论按版本名直接读取：`comments["gpt4_turbo"]["pros"]`，无需 left/right 映射。
+- 评论按版本名直接读取：`comments["gpt4_turbo"]["items"]`、`pros`、`cons`，无需 left/right 映射。
+- 版本级全局评论位于 `comments[版本名]["items"]`。划线、卡片和全局评论共用 `anchored_comments`；只分析可定位划线时过滤 `target_type == "global"`。
 - 若启用了管理员审核，分析时应通过 API `GET /api/summary?all=1&accepted_only=1` 获取仅已接受的结果。
 
 ---
@@ -947,6 +956,11 @@ def collect_comments(r):
             if c and str(c).strip():
                 parts.append(f"  共同评价: {c}")
         elif isinstance(c, dict):
+            for item in c.get('items', []):
+                text = str(item.get('comment', '')).strip() if isinstance(item, dict) else ''
+                if text:
+                    fb = item.get('feedback_type') or 'neutral'
+                    parts.append(f"  {version_name} 全局评论({fb}): {text}")
             pros = c.get('pros', '').strip()
             cons = c.get('cons', '').strip()
             if pros: parts.append(f"  {version_name} 优点: {pros}")
@@ -1030,6 +1044,7 @@ def extract_structured_comments(all_records, V_NEW, V_OLD):
             'quality_rating': r.get('quality_rating', ''),
             'pros': {},
             'cons': {},
+            'items': {},
             'general': '',
         }
         comments = r.get('comments', {})
@@ -1039,6 +1054,10 @@ def extract_structured_comments(all_records, V_NEW, V_OLD):
             elif isinstance(c, dict):
                 entry['pros'][version_name] = c.get('pros', '').strip()
                 entry['cons'][version_name] = c.get('cons', '').strip()
+                entry['items'][version_name] = [
+                    item for item in c.get('items', [])
+                    if isinstance(item, dict) and str(item.get('comment', '')).strip()
+                ]
 
         w = r.get('winner', '')
         qr = r.get('quality_rating', '')
@@ -1421,7 +1440,7 @@ print(json.dumps(report_data, ensure_ascii=False, indent=2))
 | 把 `similar` 当单一类别统计 | `similar` 中 `quality_rating="below"` 是"都不好"，`exceeds/meets` 是"都好"，语义截然不同，必须分开 |
 | 只看判定不看质量评价 | 高"低于预期"率意味着虽然"新版更好"但绝对质量仍不达标 |
 | 忽略 winner × quality 交叉分析 | `winner=V_new + below` 是"矮子里拔高个"，不能当作真正的提升 |
-| 错误读取评论字段 | v2 格式评论在 `comments[版本名]["pros"]`，不是 `comment_left_pros`；读错字段会得到空数据 |
+| 错误读取评论字段 | v2 格式评论在 `comments[版本名]["items"]`、`pros`、`cons`，不是 `comment_left_pros`；读错字段会得到空数据 |
 | 忽略量级差异 | `much_better` 和 `slightly_better` 的信号强度不同，`much_better` 更可靠 |
 | 忽略评估者差异 | 一个超严苛评估者会拉高 `similar+below` 率，稀释真实的胜率信号 |
 | 用全判定一致率评判可靠性 | 决定性判定一致率（排除 similar）才是方向共识的有效指标 |

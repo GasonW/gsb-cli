@@ -162,24 +162,22 @@ export GSB_PASSWORD="<password>"
 gsb-cli auth login --username <user> --json
 ```
 
-准备两个版本目录：
+准备一份与 AIDP 相同格式的 A/B JSONL。一行就是一道题，至少包含
+`taskName/queryId/query/versionAName/versionBName/responseA/responseB/productCardsA/productCardsB`。
 
 ```text
-baseline/
-  item_0001.json
-  item_0002.json
-
-candidate/
-  item_0001.json
-  item_0002.json
+input.jsonl
 ```
 
 检查并上传：
 
 ```bash
-gsb-cli dataset check --a ./baseline --b ./candidate --json
-gsb-cli dataset upload --a ./baseline --b ./candidate --json
+gsb-cli dataset check --input ./input.jsonl --json
+gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
 ```
+
+历史任务仍可使用 `dataset check/upload --a <dir-a> --b <dir-b>` 和
+`task bind --a <dataset-a> --b <dataset-b>`；新任务应使用单 JSONL，避免维护两种输入变体。
 
 同名数据集上传规则：
 
@@ -193,8 +191,7 @@ gsb-cli dataset upload --a ./baseline --b ./candidate --json
 gsb-cli task create-gsb \
   --name "candidate vs baseline" \
   --purpose "评估 candidate 相比 baseline 的回答质量和上线风险" \
-  --a <dataset-a-id> \
-  --b <dataset-b-id> \
+  --input <jsonl-dataset-id> \
   --description-file ./task_description.md \
   --json
 ```
@@ -213,8 +210,7 @@ gsb-cli task publish <task-id> --json
 gsb-cli task create-gsb \
   --name "candidate vs baseline" \
   --purpose "评估 candidate 相比 baseline 的回答质量和上线风险" \
-  --a <dataset-a-id> \
-  --b <dataset-b-id> \
+  --input <jsonl-dataset-id> \
   --description-file ./task_description.md \
   --publish \
   --json
@@ -253,6 +249,8 @@ gsb-cli results summary <task-id> --all --json
 gsb-cli results export <task-id> --format json --output ./exports --json
 ```
 
+结果中的评论按实际版本名组织。版本级全局评论位于 `comments[版本名].items`，每项包含 `feedback_type`、`comment`、`images` 等字段；`comments[版本名].pros` 和 `cons` 保留为按方向拼接的兼容文本。划线、卡片和全局评论共享 `anchored_comments` 存储，读取划线定位时应排除 `target_type: "global"` 的项。
+
 如果本地已经生成 HTML 报告 / JSON 摘要，可以上传到任务归档；也可以查看和下载平台侧已有报告：
 
 ```bash
@@ -262,7 +260,7 @@ gsb-cli report download <task-id> --type html --output ./decision_report.html --
 gsb-cli report download <task-id> --type json --output ./decision_summary.json --json
 ```
 
-`report upload` 会把本地 `.html` 和 `.json` 文本文件写入任务归档。上传需要当前账号有任务管理权限。
+`report upload` 会把本地 `.html` 和 `.json` 文本文件写入 `workspace/tasks/<task-id>/report/`。平台只从该 task 目录发现报告，不维护 workspace 级聚合页或 report archive。上传需要当前账号有任务管理权限。
 
 如果任务已经完成，也可以把任务归档：
 
@@ -272,32 +270,33 @@ gsb-cli task archive <task-id> --json
 
 ## 数据格式
 
-每个版本是一个目录，每条 case 是目录第一层的一个 JSON 文件。
+标准输入是一份 AIDP-compatible JSONL，每行同时包含同一道题的 A/B 数据。
 
 ```text
-version_a/
-  q_0001.json
-  q_0002.json
-
-version_b/
-  q_0001.json
-  q_0002.json
+input.jsonl
 ```
 
 规则：
 
-- A/B 两边同一条 case 必须使用完全相同的文件名。
-- 文件名去掉 `.json` 后就是 `query_id`。
-- 只读取目录第一层的 `.json` 文件，不递归读取子目录。
-- 每个 JSON 文件的顶层必须是 object。
-- CSV、XLSX、JSONL、NDJSON、TSV 需要先转换成“一条 case 一个 JSON 文件”的目录结构。
+- 每个非空行是 JSON object。
+- `queryId` 在文件内唯一。
+- `taskName`、`versionAName`、`versionBName` 在所有行中一致。
+- `productCardsA/productCardsB` 是 JSON 字符串数组；无商品卡时为 `[]`。
+- CSV、XLSX、非标准 JSONL、NDJSON、TSV 需要先转换成统一 JSONL contract。
 
-最小 JSON 示例：
+最小 JSONL 行示例：
 
 ```json
 {
+  "taskName": "candidate vs baseline",
+  "queryId": "q_0001",
   "query": "用户想买一台适合露营的便携咖啡机",
-  "response": "推荐优先考虑手压式或胶囊式便携咖啡机..."
+  "versionAName": "baseline",
+  "versionBName": "candidate",
+  "responseA": "版本 A 回复",
+  "responseB": "版本 B 回复",
+  "productCardsA": [],
+  "productCardsB": []
 }
 ```
 
@@ -319,14 +318,14 @@ gsb-cli task renderer upload <task-id> ./renderer.js --json
 | 注册账号 | `gsb-cli auth register --username <user> --password <password>` |
 | 查看当前用户 | `gsb-cli auth whoami` |
 | 退出登录 | `gsb-cli auth logout` |
-| 检查数据 | `gsb-cli dataset check --a ./baseline --b ./candidate` |
-| 上传数据 | `gsb-cli dataset upload --a ./baseline --b ./candidate` |
+| 检查数据 | `gsb-cli dataset check --input ./input.jsonl` |
+| 上传数据 | `gsb-cli dataset upload --input ./input.jsonl` |
 | 查看数据集 | `gsb-cli dataset list` |
-| 一站式创建任务 | `gsb-cli task create-gsb --name "candidate vs baseline" --purpose "评估 candidate 相比 baseline 的回答质量和上线风险" --a <dataset-a-id> --b <dataset-b-id>` |
+| 一站式创建任务 | `gsb-cli task create-gsb --name "candidate vs baseline" --purpose "评估 candidate 相比 baseline 的回答质量和上线风险" --input <jsonl-dataset-id>` |
 | 查看任务状态 | `gsb-cli task get <task-id>` |
 | 修改任务配置 | `gsb-cli task configure <task-id> --min-per-person auto --require-comments false --show-trace false` |
 | 底层创建任务 | `gsb-cli task create --name "candidate vs baseline" --purpose "评估 candidate 相比 baseline 的回答质量和上线风险"` |
-| 绑定数据 | `gsb-cli task bind <task-id> --a <dataset-a-id> --b <dataset-b-id>` |
+| 绑定数据 | `gsb-cli task bind <task-id> --input <jsonl-dataset-id>` |
 | 底层配置任务 | `gsb-cli task setup <task-id> --min-per-person auto` |
 | 底层配置权限/评论 | `gsb-cli task config <task-id> --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false` |
 | 发布前检查 | `gsb-cli task preflight <task-id>` |
@@ -372,10 +371,10 @@ export GSB_CLI_SESSION="/path/to/sessions.json"
 
 | CLI 操作 | 平台 workspace 结果 |
 | --- | --- |
-| `dataset upload` | 复制 JSON 到 `workspace/uploads/<username>/<dataset-name>/`，并更新 `workspace/uploads/_meta.json` |
+| `dataset upload` | 保存原始 JSONL 并生成可绑定的 A/B 物化数据，更新 `workspace/uploads/_meta.json` |
 | `task create-gsb` | 依次执行创建任务、绑定数据快照、保存分配策略、保存 visibility，并运行发布前检查 |
 | `task create` | 创建 `workspace/tasks/<task-id>/`，并更新任务注册表 |
-| `task bind` | 写入 `workspace/tasks/<task-id>/data_a/`、`data_b/` 和版本映射 |
+| `task bind` | 写入原始 `input/*.jsonl`、自动物化的 `data_a/data_b` 和版本映射 |
 | `task setup` | 写入 `workspace/tasks/<task-id>/_config.json`，包含分配策略、锚点题、评估维度和 visibility |
 | `task config` | 更新同一个 `_config.json` 中的 `visibility` |
 | `task configure` | 按参数组合更新 `_config.json` 中的分配策略和 visibility，并运行发布前检查 |
@@ -395,14 +394,13 @@ CLI 失败时会尽量返回可修复的问题，而不是只给 HTTP 错误。
   "ok": false,
   "issues": [
     {
-      "code": "ZERO_COMMON_ITEMS",
-      "problem": "A/B 版本没有同名 JSON 文件，评估任务会是 0 条",
+      "code": "JSONL_DUPLICATE_QUERY_ID",
+      "problem": "queryId 重复：item_0001",
       "evidence": {
-        "count_a": 10,
-        "count_b": 10,
-        "common_count": 0
+        "line": 11,
+        "query_id": "item_0001"
       },
-      "next_step": "把同一条 case 在两个版本目录内保存为完全相同的文件名，例如 item_0001.json。"
+      "next_step": "保证 queryId 在文件内唯一。"
     }
   ]
 }
@@ -439,8 +437,8 @@ gsb-cli doctor --base-url https://<gsb-platform-url>
 正确流程：
 
 ```bash
-gsb-cli dataset upload --a ./baseline --b ./candidate --json
-gsb-cli task bind <task-id> --a <dataset-a-id> --b <dataset-b-id> --json
+gsb-cli dataset upload --input ./input.jsonl --json
+gsb-cli task bind <task-id> --input <jsonl-dataset-id> --json
 ```
 
 只有当平台服务也运行在同一台机器上，并且能读到同一路径时，才适合直接绑定本地路径。

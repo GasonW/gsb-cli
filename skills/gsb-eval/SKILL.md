@@ -10,9 +10,9 @@ version: 0.1.5
 
 ```bash
 gsb-cli auth login --username <user> --password <pass> --json
-gsb-cli dataset check --a ./baseline --b ./candidate --json
-gsb-cli dataset upload --a ./baseline --b ./candidate --name-a baseline --name-b candidate --json
-gsb-cli task create-gsb --name "candidate vs baseline" --purpose "评估目的" --a baseline --b candidate --description-file ./task_description.md --json
+gsb-cli dataset check --input ./input.jsonl --json
+gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
+gsb-cli task create-gsb --name "candidate vs baseline" --purpose "评估目的" --input <jsonl-dataset-id> --description-file ./task_description.md --json
 gsb-cli task publish <task-id> --json
 # → 将返回的 urls.eval 发给评估者
 # → 评估完成后：
@@ -36,7 +36,7 @@ npm 安装 `gsb-cli` 时会在 `postinstall` 阶段自动安装。环境变量 `
 ## 触发后的快速决策
 
 - 用户要"创建/发布 GSB 任务"：走任务工作流。
-- 用户给了 CSV/XLSX/JSONL：先转换成平台数据目录格式再上传。
+- 用户给了符合 AIDP contract 的 JSONL：直接检查并上传；CSV/XLSX 或其他 JSONL 才需要先转换。
 - 用户要"分析结果/生成报告/上线建议"：先回收结果，再按分析框架生成报告，最后上传归档。
 - 用户要"bad case/good case 分析"：优先做问题簇/能力簇归纳，不要只罗列 case。
 
@@ -59,28 +59,23 @@ gsb-cli auth register --base-url <platform-url> --username <user> --password <pa
 
 ## 数据格式与上传
 
-平台标准输入是两个版本目录，每个 `.json` 文件代表一条 case：
+平台标准输入与 AIDP 一致：一个 JSONL，一行同时包含一道题的 A/B 数据：
 
 ```text
-data/
-├── baseline/
-│   ├── Q_0001.json
-│   └── Q_0002.json
-└── candidate/
-    ├── Q_0001.json
-    └── Q_0002.json
+input.jsonl
 ```
 
-约束：JSON 顶层必须是 object。A/B 两个目录用同名文件对齐 query id。非 JSON 文件和只在单侧存在的文件会被忽略。
+每行必填 `taskName`、`queryId`、`query`、`versionAName`、`versionBName`、
+`responseA`、`responseB`、`productCardsA`、`productCardsB`。`queryId` 唯一；任务名和版本名在文件内一致。
 
 ```bash
-gsb-cli dataset check --a ./data/baseline --b ./data/candidate --json
-gsb-cli dataset upload --a ./data/baseline --b ./data/candidate --name-a baseline --name-b candidate --json
+gsb-cli dataset check --input ./input.jsonl --json
+gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
 gsb-cli dataset list --json
 gsb-cli dataset guide --json
 ```
 
-先跑 `dataset check`。如果返回 `ZERO_COMMON_ITEMS`、`NO_JSON_FILES` 等错误，按 `next_step` 修数据后再上传。
+先跑 `dataset check`。如果返回 `JSONL_*` 错误，按 `next_step` 修数据后再上传。旧双目录命令只用于历史兼容。
 
 同名数据集上传规则：100% 重复直接复用（`reused: true`）。同名但内容不同时默认失败，按提示使用 `--reuse`、`--replace`、`--new-name <name>` 或 `--force-new`。
 
@@ -92,8 +87,7 @@ gsb-cli dataset guide --json
 gsb-cli task create-gsb \
   --name "candidate vs baseline" \
   --purpose "评估 candidate 相比 baseline 的质量和上线风险" \
-  --a <dataset-a-id-or-name> \
-  --b <dataset-b-id-or-name> \
+  --input <jsonl-dataset-id-or-name> \
   --description-file ./task_description.md \
   --json
 
@@ -140,6 +134,7 @@ gsb-cli report status <task-id> --json
 ```
 
 上传接口只接受 `.html` 和 `.json`。成功返回的 `urls.report` 是平台内可访问的报告地址。
+报告必须归属到当前 task 的 `report/`；不要创建 workspace 级 reports、report index 或 report archive。
 
 ## 分析框架
 
@@ -159,7 +154,8 @@ gsb-cli report status <task-id> --json
 - `magnitude` 表示显著/略好/相似；`quality_rating` 表示绝对质量。
 - `similar + below` 是两版共同低质，不等于 baseline 胜出。
 - 主结论按题目聚合而非只按评次聚合；用 `much_better=2`、`slightly_better=1`、`similar=0` 做方向分数。
-- 评论按版本名读取（`comments["candidate"].pros`），不要按左右面板读取。
+- 评论按版本名读取（`comments["candidate"].items`、`pros`、`cons`），不要按左右面板读取。
+- 全局评论是版本级 0-N 列表，位于 `comments[版本名].items`；每项可含 `feedback_type: "positive" | "negative" | null`、`comment`、`images`。划线/卡片评论位于 `anchored_comments`，其中 `target_type: "global"` 表示全局评论的同源存储项，分析划线定位时应过滤这类项。
 - 结构指标只能解释回答形态，不能单独证明质量好坏。
 - 样本少的评估者不自动视为低质；只有快答、锚点不一致、极端位置偏好等多信号叠加时才降权或标注风险。
 - 锚点题只用于评估者一致性和分群诊断，不作为模型胜负的直接证据。

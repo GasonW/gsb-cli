@@ -41,7 +41,8 @@ The platform repository owns the HTTP API. This CLI depends on the following sta
 `POST /api/datasets/upload` request fields:
 
 - `folder_name` string, required. Dataset display/storage name.
-- `files` object, required. Keys are `.json` file names and values are file content.
+- `format` string, optional. New GSB inputs use `aidp-jsonl`; omitted means legacy JSON directory upload.
+- `files` object, required. For `aidp-jsonl`, it contains exactly one `.jsonl` file; legacy uploads contain `.json` files.
 - `on_duplicate` string, optional. Supported values are `fail`, `reuse`, `replace`, and `force_new`; default is `fail`.
 
 Dataset upload response rules:
@@ -50,6 +51,15 @@ Dataset upload response rules:
 - Same dataset name with different content returns HTTP 409 and a structured code such as `DATASET_NAME_CONFLICT`.
 - `replace` overwrites the selected same-name dataset content and returns the reused dataset id with `replaced: true`.
 - `force_new` creates a new physical dataset storage name and returns the new dataset id.
+- `aidp-jsonl` responses include `format`, `row_count`, and `version_names`.
+
+`POST /tasks/{task_id}/api/select-dirs` supports two binding shapes:
+
+- Preferred: `{ "dataset_id": "<aidp-jsonl-dataset-id>" }`. The platform copies the raw JSONL to `task/input/` and materializes `data_a/data_b`.
+- Legacy: `{ "dirs": ["<server-dir-a>", "<server-dir-b>"] }`.
+
+Direct browser upload may send exactly one `.jsonl` file as multipart form data to the same endpoint.
+Binding a different raw input over an existing task returns `TASK_INPUT_REVISION_REQUIRED` unless an intentional draft replacement is explicitly requested.
 
 `GET /api/tasks/{task_id}/status` returns the Agent-facing task state. It should not expose raw task registry `config` internals. The stable top-level fields are:
 
@@ -66,6 +76,15 @@ Dataset upload response rules:
 
 - `files` object, required. Keys are report file names and values are text content.
 - Accepted file suffixes are `.html` and `.json`; JSON files must contain valid JSON text.
+- Reports are stored and discovered only under `workspace/tasks/{task_id}/report/`. The platform does not scan workspace-level report, report-index, or report-archive directories.
+- Report status keeps `aggregate_dir` as an empty compatibility field; every `html_sources` and `json_sources` entry has `source: "task"`.
+
+`POST /tasks/{task_id}/api/export` JSON results include evaluator records with:
+
+- `comments` object keyed by actual version name plus `general`.
+- `comments[version].items` as the canonical version-level global comment list. Each item may contain `id`, `side`, `version_key`, `version`, `target_type: "global"`, `comment`, `feedback_type`, `images`, and timestamps.
+- `comments[version].pros` and `comments[version].cons` as compatibility text derived from positive and negative global comments.
+- `anchored_comments` as the shared comment item list for text selections, cards, blocks, and global comments. Consumers that need only locatable highlights should ignore entries with `target_type: "global"`.
 
 Compatibility rule:
 

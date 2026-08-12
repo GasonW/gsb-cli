@@ -97,36 +97,25 @@ gsb-cli auth logout --json
 #### 检查数据
 
 ```bash
-# 方式1：单目录（需包含两个版本子目录）
-gsb-cli dataset check <dir> --json
-
-# 方式2：分别指定 A/B 目录
-gsb-cli dataset check --a ./data/baseline --b ./data/candidate --json
-
-# 方式3：指定根目录和子目录名
-gsb-cli dataset check --root ./data --version-a baseline --version-b candidate --json
+gsb-cli dataset check --input ./input.jsonl --json
 ```
 
-默认返回每侧 summary 和 pair 的 `common_count`；需要逐文件列表时加 `--verbose`。
+返回 `row_count`、A/B 版本名和逐行 contract 问题。
 
 常见错误码：
-- `DATASET_DIR_NOT_FOUND` — 目录不存在
-- `NO_JSON_FILES` — 目录中没有 JSON 文件
-- `JSON_PARSE_ERROR` — JSON 解析失败
-- `JSON_ROOT_NOT_OBJECT` — JSON 顶层不是 object
-- `ZERO_COMMON_ITEMS` — A/B 两侧没有同名文件
+- `JSONL_FILE_NOT_FOUND` — 文件不存在
+- `JSONL_PARSE_ERROR` — 某行 JSON 解析失败
+- `JSONL_REQUIRED_FIELD_INVALID` — 必填字段缺失或为空
+- `JSONL_DUPLICATE_QUERY_ID` — queryId 重复
+- `JSONL_HEADER_INCONSISTENT` — 任务名或版本名不一致
 
 #### 上传数据集
 
 ```bash
-# 单版本上传
-gsb-cli dataset upload ./data/baseline --name baseline --json
-
-# 双版本上传
-gsb-cli dataset upload --a ./data/baseline --b ./data/candidate --name-a baseline --name-b candidate --json
+gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
 ```
 
-返回 `uploaded[]` 数组，每个元素含 `id`、`name`、`json_count`。
+返回 `uploaded[]` 数组，每个元素含 `id`、`name`、`format: "aidp-jsonl"`、`row_count` 和版本名。
 
 同名上传语义：
 
@@ -158,22 +147,21 @@ gsb-cli dataset guide --json
 gsb-cli task create-gsb \
   --name "candidate vs baseline" \
   --purpose "评估 candidate 相比 baseline 的质量和上线风险" \
-  --a <dataset-a-id-or-name> \
-  --b <dataset-b-id-or-name> \
+  --input <jsonl-dataset-id-or-name> \
   --description-file ./task_description.md \
   --json
 ```
 
 - `--name`：任务名称（给管理员看）
 - `--purpose`：任务目的或备注（给创建者和管理员看，不是给评估者看的任务说明）
-- `--a` / `--b`：数据集 id 或名称
+- `--input`：统一 JSONL 数据集 id 或名称
 - 返回 `task.id` 和 `agent_summary`，后续命令均需此 ID
 - 默认 `min_per_person` 为共同题数的 15%，最小 10；默认锚点题数量为 `min_per_person` 的 10%，最小 3；默认 `show_trace=false`
 
 #### 绑定数据源
 
 ```bash
-gsb-cli task bind <task-id> --a <dataset-a-id-or-name> --b <dataset-b-id-or-name> --json
+gsb-cli task bind <task-id> --input <jsonl-dataset-id-or-name> --json
 ```
 
 可用数据集 ID 或名称引用。常见错误：`DATASET_REF_NOT_FOUND`、`ZERO_COMMON_ITEMS_AFTER_BIND`。
@@ -220,16 +208,18 @@ gsb-cli task config <task-id> \
 
 | CLI 操作 | 平台 workspace 结果 |
 | --- | --- |
-| `dataset upload` | `workspace/uploads/<username>/<dataset-name>/` + `workspace/uploads/_meta.json` |
+| `dataset upload` | 保存一份原始 A/B JSONL，生成可绑定的物化数据，并更新 `workspace/uploads/_meta.json` |
 | `task create-gsb` | 创建任务、绑定数据快照、写入分配策略和 visibility，并运行 preflight |
 | `task create` | `workspace/tasks/<task-id>/` + 任务注册表 |
-| `task bind` | `workspace/tasks/<task-id>/data_a/`、`data_b/` 和版本映射 |
+| `task bind` | `workspace/tasks/<task-id>/input/*.jsonl`、自动物化的 `data_a/data_b` 和版本映射 |
 | `task setup` | `workspace/tasks/<task-id>/_config.json` |
 | `task configure` | 更新 `workspace/tasks/<task-id>/_config.json` 中的分配策略和 visibility |
 | `task renderer upload` | `workspace/tasks/<task-id>/renderer.js` |
 | `results export` | `workspace/tasks/<task-id>/exports/` |
 | `report upload` | `workspace/tasks/<task-id>/report/` |
 | 评估者提交 | `workspace/tasks/<task-id>/rating_result/eval_<user>.json` |
+
+报告发现以 task 目录为唯一来源；不要为多个 task 生成 workspace 级聚合页、report index 或 report archive。
 
 #### 发布前检查
 
@@ -317,11 +307,11 @@ gsb-cli doctor --json
 gsb-cli auth whoami --json
 
 # 2. 检查并上传数据
-gsb-cli dataset check --a ./data/baseline --b ./data/candidate --json
-gsb-cli dataset upload --a ./data/baseline --b ./data/candidate --name-a baseline --name-b candidate --json
+gsb-cli dataset check --input ./input.jsonl --json
+gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
 
 # 3. 创建并配置任务
-gsb-cli task create-gsb --name "candidate vs baseline" --purpose "..." --a baseline --b candidate --description-file ./task_description.md --json
+gsb-cli task create-gsb --name "candidate vs baseline" --purpose "..." --input <jsonl-dataset-id> --description-file ./task_description.md --json
 gsb-cli task get <task-id> --json
 
 # 4. 发布
