@@ -371,10 +371,10 @@ export GSB_CLI_SESSION="/path/to/sessions.json"
 
 | CLI 操作 | 平台 workspace 结果 |
 | --- | --- |
-| `dataset upload` | 保存原始 JSONL 并生成可绑定的 A/B 物化数据，更新 `workspace/uploads/_meta.json` |
+| `dataset upload` | 保存可绑定的原始 A/B JSONL，更新 `workspace/uploads/_meta.json` |
 | `task create-gsb` | 依次执行创建任务、绑定数据快照、保存分配策略、保存 visibility，并运行发布前检查 |
 | `task create` | 创建 `workspace/tasks/<task-id>/`，并更新任务注册表 |
-| `task bind` | 写入原始 `input/*.jsonl`、自动物化的 `data_a/data_b` 和版本映射 |
+| `task bind` | 写入 task 根目录唯一的 `input.jsonl` 并保存版本映射；运行时直接读取 |
 | `task setup` | 写入 `workspace/tasks/<task-id>/_config.json`，包含分配策略、锚点题、评估维度和 visibility |
 | `task config` | 更新同一个 `_config.json` 中的 `visibility` |
 | `task configure` | 按参数组合更新 `_config.json` 中的分配策略和 visibility，并运行发布前检查 |

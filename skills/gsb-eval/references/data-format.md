@@ -25,9 +25,10 @@ gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
 gsb-cli task bind <task-id> --input <jsonl-dataset-id> --json
 ```
 
-平台会保留 task 内的原始 `input/*.jsonl`，并自动物化 `data_a/data_b` 供评估运行时读取。不要手工再制作另一套 A/B 输入。
+平台把文件保存为 task 根目录唯一的 `input.jsonl`，评估运行时直接读取。不要按平台复制 task，
+也不要创建 `aidp/`、`input/`、`data_a/`、`data_b/` 适配目录。
 
-旧的 `--a <dir-a> --b <dir-b>` 命令只用于现有任务兼容。
+旧的 `--a <dir-a> --b <dir-b>` 命令只用于读取未迁移历史任务，不用于创建新任务。
 
 ## 平台渲染
 
