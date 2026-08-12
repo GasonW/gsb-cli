@@ -32,19 +32,21 @@ Commands:
   auth whoami
   auth logout
 
-  dataset check <dir> --verbose
+  dataset check --input <aidp-compatible.jsonl>
+  dataset check <dir> --verbose                         # legacy
   dataset check --a <version-a-dir> --b <version-b-dir>
   dataset check --root <root> --version-a <name> --version-b <name>
-  dataset upload <dir> --name <name>
+  dataset upload --input <aidp-compatible.jsonl> --name <name>
+  dataset upload <dir> --name <name>                    # legacy
   dataset upload --a <version-a-dir> --b <version-b-dir> --name-a <name> --name-b <name>
   dataset list
   dataset guide
 
   task create --name <name> --purpose <purpose> --mode gsb
   task get <task-id>
-  task create-gsb --name <name> --a <dataset-a> --b <dataset-b> --description-file ./description.md --publish
+  task create-gsb --name <name> --input <jsonl-dataset> --description-file ./description.md --publish
   task configure <task-id> --min-per-person auto --require-comments false --show-trace false
-  task bind <task-id> --a <dataset-a-id-or-name> --b <dataset-b-id-or-name>
+  task bind <task-id> --input <jsonl-dataset-id-or-name>
   task setup <task-id> --name <name> --description-file ./description.md --min-per-person auto
   task config <task-id> --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false
   task renderer status <task-id>

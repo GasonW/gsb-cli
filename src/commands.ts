@@ -3,7 +3,7 @@ import { basename, dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ApiClient, ApiError, serverError } from "./api.js";
 import { CliUsageError, OptionReader, parseArgs, requireArg } from "./args.js";
-import { datasetCheckPayload, datasetPath, FORMAT_GUIDANCE, inspectDatasetDir, validFileMap } from "./dataset.js";
+import { datasetCheckPayload, datasetPath, FORMAT_GUIDANCE, inspectDatasetDir, jsonlCheckPayload, validFileMap } from "./dataset.js";
 import { HELP_TEXT } from "./help.js";
 import { hasErrors, issue, redactedArgv } from "./issues.js";
 import { clearSession, expandHome, loadSessions, saveSession, sessionPath } from "./session.js";
@@ -371,8 +371,8 @@ async function cmdAuthRegister(globals: CliGlobals): Promise<CliResult> {
         role: data.role || "evaluator",
         next_commands: [
           "gsb-cli auth whoami --json",
-          "gsb-cli dataset check --a <baseline-dir> --b <candidate-dir> --json",
-          "gsb-cli dataset upload --a <baseline-dir> --b <candidate-dir> --json",
+          "gsb-cli dataset check --input <aidp-compatible.jsonl> --json",
+          "gsb-cli dataset upload --input <aidp-compatible.jsonl> --json",
         ],
       },
       exitCode: 0,
@@ -424,6 +424,7 @@ async function cmdAuthLogout(globals: CliGlobals): Promise<CliResult> {
 
 function cmdDatasetCheck(globals: CliGlobals, args: string[]): CliResult {
   const reader = new OptionReader(args);
+  const input = reader.takeOptionalString("input");
   const root = reader.takeOptionalString("root");
   const versionA = reader.takeOptionalString("version-a");
   const versionB = reader.takeOptionalString("version-b");
@@ -432,6 +433,12 @@ function cmdDatasetCheck(globals: CliGlobals, args: string[]): CliResult {
   const verbose = reader.takeFlag("verbose");
   reader.requireNoUnknown();
   const rest = reader.rest();
+
+  const positional = input || rest[0];
+  if (positional && existsSync(datasetPath(positional)) && statSync(datasetPath(positional)).isFile()) {
+    const payload = jsonlCheckPayload(positional, redactedArgv(globals.rawArgv));
+    return { payload, exitCode: payload.ok ? 0 : 1 };
+  }
 
   let pathA: string | undefined;
   let pathB: string | undefined;
@@ -454,6 +461,7 @@ function cmdDatasetCheck(globals: CliGlobals, args: string[]): CliResult {
 
 async function cmdDatasetUpload(globals: CliGlobals, args: string[]): Promise<CliResult> {
   const reader = new OptionReader(args);
+  const input = reader.takeOptionalString("input");
   const a = reader.takeOptionalString("a");
   const b = reader.takeOptionalString("b");
   const name = reader.takeOptionalString("name");
@@ -474,6 +482,40 @@ async function cmdDatasetUpload(globals: CliGlobals, args: string[]): Promise<Cl
   }
   const duplicateStrategy = strategyFlags[0] as "reuse" | "replace" | "force_new" | undefined;
   const client = await buildClient(globals);
+
+  const jsonlPath = input || (!a && !b ? rest[0] : undefined);
+  if (jsonlPath && existsSync(datasetPath(jsonlPath)) && statSync(datasetPath(jsonlPath)).isFile()) {
+    const check = jsonlCheckPayload(jsonlPath, redactedArgv(globals.rawArgv));
+    if (!check.ok) return { payload: check, exitCode: 1 };
+    try {
+      const absolute = datasetPath(jsonlPath);
+      const payload: JsonObject = {
+        folder_name: newName || name || basename(absolute, ".jsonl"),
+        format: "aidp-jsonl",
+        files: { [basename(absolute)]: readFileSync(absolute, "utf8") },
+      };
+      if (duplicateStrategy) payload.on_duplicate = duplicateStrategy;
+      const data = await client.request<JsonObject>("POST", "/api/datasets/upload", payload);
+      return {
+        payload: {
+          ok: true,
+          message: "A/B JSONL 数据集上传完成",
+          uploaded: [publicDatasetPayload("input", data)],
+          check,
+          next_commands: [
+            `gsb-cli task create-gsb --name <task-name> --input ${String(data.id || "<dataset-id>")}`,
+            `gsb-cli task bind <task-id> --input ${String(data.id || "<dataset-id>")}`,
+          ],
+        },
+        exitCode: 0,
+      };
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return datasetUploadFailurePayload(error, globals) ?? apiFailurePayload(error, "上传 JSONL 数据集", globals);
+      }
+      throw error;
+    }
+  }
 
   let targets: Array<{ label: string; info: DatasetInfo; name?: string }> = [];
   let check: JsonObject;
@@ -578,7 +620,7 @@ async function cmdTaskCreate(globals: CliGlobals, args: string[]): Promise<CliRe
           evaluate: `${client.baseUrl}/tasks/${task.id}/`,
         },
         next_commands: [
-          `gsb-cli task bind ${task.id} --a <dataset-a> --b <dataset-b>`,
+          `gsb-cli task bind ${task.id} --input <jsonl-dataset>`,
           `gsb-cli task setup ${task.id} --min-per-person 0`,
         ],
       },
@@ -605,15 +647,41 @@ async function cmdTaskGet(globals: CliGlobals, args: string[]): Promise<CliResul
 async function cmdTaskBind(globals: CliGlobals, args: string[]): Promise<CliResult> {
   const taskId = requireArg(args, 0, "task-id");
   const reader = new OptionReader(args.slice(1));
+  const input = reader.takeOptionalString("input");
   const a = reader.takeOptionalString("a");
   const b = reader.takeOptionalString("b");
   reader.requireNoUnknown();
-  if (!a) {
-    throw new CliUsageError("task bind requires --a");
+  if (!input && !a) {
+    throw new CliUsageError("task bind requires --input or --a");
+  }
+  if (input && (a || b)) {
+    throw new CliUsageError("task bind accepts either --input or --a/--b, not both");
   }
   const client = await buildClient(globals);
   try {
-    const refs = [await resolveDatasetRef(client, a)];
+    if (input) {
+      const ref = await resolveDatasetRef(client, input);
+      if (ref.format !== "aidp-jsonl") {
+        throw new DatasetRefError({ code: "DATASET_FORMAT_MISMATCH", ref: input, format: ref.format || "json-directory", required_format: "aidp-jsonl" });
+      }
+      const data = await client.request<JsonObject>("POST", `/tasks/${encodeURIComponent(taskId)}/api/select-dirs`, {
+        dataset_id: ref.id,
+      });
+      return {
+        payload: {
+          ok: true,
+          message: "A/B JSONL 输入已绑定",
+          selection: data,
+          resolved_refs: [publicDatasetRef(ref)],
+          next_commands: [
+            `gsb-cli task setup ${String(data.task_id || taskId)} --min-per-person 0`,
+            `gsb-cli task preflight ${String(data.task_id || taskId)}`,
+          ],
+        },
+        exitCode: 0,
+      };
+    }
+    const refs = [await resolveDatasetRef(client, a as string)];
     if (b) {
       refs.push(await resolveDatasetRef(client, b));
     }
@@ -670,6 +738,7 @@ async function cmdTaskCreateGsb(globals: CliGlobals, args: string[]): Promise<Cl
   const name = reader.takeString("name", "");
   const purpose = reader.takeString("purpose", "");
   const taskId = reader.takeString("task-id", "");
+  const input = reader.takeOptionalString("input");
   const a = reader.takeOptionalString("a");
   const b = reader.takeOptionalString("b");
   const descriptionFile = reader.takeOptionalString("description-file");
@@ -685,18 +754,26 @@ async function cmdTaskCreateGsb(globals: CliGlobals, args: string[]): Promise<Cl
   if (!name.trim()) {
     throw new CliUsageError("task create-gsb requires --name");
   }
-  if (!a || !b) {
-    throw new CliUsageError("task create-gsb requires --a and --b");
+  if (!input && (!a || !b)) {
+    throw new CliUsageError("task create-gsb requires --input or --a and --b");
+  }
+  if (input && (a || b)) {
+    throw new CliUsageError("task create-gsb accepts either --input or --a/--b, not both");
   }
   const client = await buildClient(globals);
   try {
     const createData = await client.request<JsonObject>("POST", "/api/tasks", { name, purpose, mode: "gsb", task_id: taskId });
     const task = isJsonObject(createData.task) ? createData.task : {};
     const createdTaskId = String(task.id || taskId || "");
-    const refs = [await resolveDatasetRef(client, a), await resolveDatasetRef(client, b)];
-    const bindData = await client.request<JsonObject>("POST", `/tasks/${encodeURIComponent(createdTaskId)}/api/select-dirs`, {
-      dirs: refs.map((ref) => ref.path),
-    });
+    const refs = input
+      ? [await resolveDatasetRef(client, input)]
+      : [await resolveDatasetRef(client, a as string), await resolveDatasetRef(client, b as string)];
+    if (input && refs[0].format !== "aidp-jsonl") {
+      throw new DatasetRefError({ code: "DATASET_FORMAT_MISMATCH", ref: input, format: refs[0].format || "json-directory", required_format: "aidp-jsonl" });
+    }
+    const bindData = await client.request<JsonObject>("POST", `/tasks/${encodeURIComponent(createdTaskId)}/api/select-dirs`, input
+      ? { dataset_id: refs[0].id }
+      : { dirs: refs.map((ref) => ref.path) });
     const commonCount = Number(bindData.common_count || 0);
     const minPerPerson = resolveMinPerPerson(minPerPersonRaw, commonCount);
     const anchorCount = resolveAnchorCount(anchorCountRaw, commonCount, minPerPerson);
@@ -1410,7 +1487,7 @@ function publicDatasetPayload(label: string, data: JsonObject): JsonObject {
 
 function publicDatasetRef(data: JsonObject): JsonObject {
   const out: JsonObject = {};
-  for (const key of ["kind", "id", "name", "username", "json_count", "uploaded_at", "reused", "replaced", "storage_name", "duplicate"]) {
+  for (const key of ["kind", "id", "name", "username", "format", "row_count", "version_names", "json_count", "uploaded_at", "reused", "replaced", "storage_name", "duplicate"]) {
     if (data[key] !== undefined) {
       out[key] = data[key];
     }

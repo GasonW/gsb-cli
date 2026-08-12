@@ -240,6 +240,57 @@ test("dataset upload surfaces duplicate-name conflicts as actionable issues", as
   }
 });
 
+test("CLI uploads and binds one AIDP-compatible JSONL dataset", async () => {
+  const root = mkdtempSync(join(tmpdir(), "gsb-cli-jsonl-"));
+  const input = join(root, "input.jsonl");
+  writeFileSync(input, JSON.stringify({
+    taskName: "launch eval",
+    queryId: "q-1",
+    query: "what should I buy?",
+    versionAName: "model-a",
+    versionBName: "model-b",
+    responseA: "answer a",
+    responseB: "answer b",
+    productCardsA: [],
+    productCardsB: [],
+  }) + "\n");
+  const seen: Array<{ path: string; body: unknown }> = [];
+  const server = createServer(async (req, res) => {
+    const body = await readJson(req);
+    seen.push({ path: req.url || "", body });
+    if (req.method === "POST" && req.url === "/api/datasets/upload") {
+      return sendJson(res, { ok: true, id: "ds_jsonl", name: "input", format: "aidp-jsonl", row_count: 1, json_count: 1 });
+    }
+    if (req.method === "GET" && req.url === "/api/datasets") {
+      return sendJson(res, { my: [{ id: "ds_jsonl", name: "input", path: "/srv/input", format: "aidp-jsonl", row_count: 1, json_count: 1 }], others: [] });
+    }
+    if (req.method === "POST" && req.url === "/tasks/task_1/api/select-dirs") {
+      return sendJson(res, { ok: true, task_id: "task_1", input_format: "aidp-jsonl", common_count: 1 });
+    }
+    return sendJson(res, { error: "not found" }, 404);
+  });
+  await listen(server);
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const env = { ...process.env, GSB_CLI_SESSION: join(tmpdir(), "unused-gsb-session.json") };
+
+    const upload = await runCli(["dataset", "upload", "--input", input, "--base-url", baseUrl, "--json"], { env });
+    assert.equal(upload.exitCode, 0);
+    const uploadBody = seen.find((item) => item.path === "/api/datasets/upload")?.body as Record<string, unknown>;
+    assert.equal(uploadBody.format, "aidp-jsonl");
+    assert.deepEqual(Object.keys(uploadBody.files as Record<string, string>), ["input.jsonl"]);
+
+    const bind = await runCli(["task", "bind", "task_1", "--input", "ds_jsonl", "--base-url", baseUrl, "--json"], { env });
+    assert.equal(bind.exitCode, 0);
+    const bindBodies = seen.filter((item) => item.path === "/tasks/task_1/api/select-dirs");
+    assert.deepEqual(bindBodies[0]?.body, { dataset_id: "ds_jsonl" });
+  } finally {
+    await close(server);
+  }
+});
+
 test("task get returns agent-facing task status without raw internal config", async () => {
   const server = createServer(async (req, res) => {
     await readJson(req);
@@ -337,8 +388,7 @@ test("task create-gsb runs create bind setup config and preflight with defaults"
     if (req.method === "GET" && req.url === "/api/datasets") {
       return sendJson(res, {
         my: [
-          { id: "ds_a", name: "baseline", path: "/srv/uploads/pm/baseline", json_count: 200 },
-          { id: "ds_b", name: "candidate", path: "/srv/uploads/pm/candidate", json_count: 200 },
+          { id: "ds_jsonl", name: "launch-input", path: "/srv/uploads/pm/launch-input", format: "aidp-jsonl", row_count: 200, json_count: 200 },
         ],
         others: [],
       });
@@ -388,15 +438,15 @@ test("task create-gsb runs create bind setup config and preflight with defaults"
       "launch eval",
       "--purpose",
       "Compare candidate",
-      "--a",
-      "ds_a",
-      "--b",
-      "ds_b",
+      "--input",
+      "ds_jsonl",
       "--json",
     ], { env: { ...process.env, GSB_CLI_SESSION: join(tmpdir(), "unused-gsb-session.json") } });
 
     assert.equal(create.exitCode, 0);
     assert.equal((create.payload.agent_summary as Record<string, unknown>).state, "ready_to_publish");
+    const bind = seen.find((item) => item.path === "/tasks/task_1/api/select-dirs")?.body;
+    assert.deepEqual(bind, { dataset_id: "ds_jsonl" });
     const setup = seen.find((item) => item.path === "/tasks/task_1/api/setup")?.body as Record<string, unknown>;
     assert.equal(setup.min_per_person, 30);
     assert.equal(setup.anchor_count, 3);
@@ -485,8 +535,11 @@ test("CLI reads and downloads archived task reports from the remote platform", a
         latest_json: "decision_summary.json",
         url: "/tasks/task_1/report/decision_report.html",
         summary_url: "/tasks/task_1/report/decision_summary.json",
+        aggregate_dir: "",
         html_files: ["decision_report.html"],
         json_files: ["decision_summary.json"],
+        html_sources: [{ file: "decision_report.html", source: "task" }],
+        json_sources: [{ file: "decision_summary.json", source: "task" }],
       });
     }
     if (req.method === "GET" && req.url === "/tasks/task_1/report/decision_report.html") {
@@ -509,6 +562,10 @@ test("CLI reads and downloads archived task reports from the remote platform", a
     const status = await runCli(["report", "status", "task_1", "--base-url", baseUrl, "--json"], { env });
     assert.equal(status.exitCode, 0);
     assert.equal(status.payload.message, "已找到归档分析报告");
+    const report = status.payload.report as Record<string, unknown>;
+    assert.equal(report.aggregate_dir, "");
+    assert.deepEqual(report.html_sources, [{ file: "decision_report.html", source: "task" }]);
+    assert.deepEqual(report.json_sources, [{ file: "decision_summary.json", source: "task" }]);
     assert.deepEqual(status.payload.urls, {
       report: `${baseUrl}/tasks/task_1/report/decision_report.html`,
       summary: `${baseUrl}/tasks/task_1/report/decision_summary.json`,

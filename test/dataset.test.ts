@@ -3,7 +3,45 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { datasetCheckPayload } from "../src/dataset.js";
+import { datasetCheckPayload, jsonlCheckPayload } from "../src/dataset.js";
+
+function aidpRow(queryId: string) {
+  return {
+    taskName: "test",
+    queryId,
+    query: "what should I buy?",
+    versionAName: "model-a",
+    versionBName: "model-b",
+    responseA: "a",
+    responseB: "b",
+    productCardsA: [],
+    productCardsB: [],
+  };
+}
+
+test("dataset check validates one AIDP-compatible JSONL input", () => {
+  const root = mkdtempSync(join(tmpdir(), "gsb-cli-jsonl-"));
+  const input = join(root, "input.jsonl");
+  writeFileSync(input, `${JSON.stringify(aidpRow("q-1"))}\n${JSON.stringify(aidpRow("q-2"))}\n`);
+
+  const payload = jsonlCheckPayload(input, "gsb-cli dataset check --input input.jsonl");
+
+  assert.equal(payload.ok, true);
+  assert.equal(payload.row_count, 2);
+  assert.deepEqual(payload.version_names, { A: "model-a", B: "model-b" });
+});
+
+test("dataset check rejects duplicate JSONL query ids", () => {
+  const root = mkdtempSync(join(tmpdir(), "gsb-cli-jsonl-"));
+  const input = join(root, "input.jsonl");
+  writeFileSync(input, `${JSON.stringify(aidpRow("q-1"))}\n${JSON.stringify(aidpRow("q-1"))}\n`);
+
+  const payload = jsonlCheckPayload(input, "gsb-cli dataset check --input input.jsonl");
+  const issues = payload.issues as Array<Record<string, unknown>>;
+
+  assert.equal(payload.ok, false);
+  assert.equal(issues.some((item) => item.code === "JSONL_DUPLICATE_QUERY_ID"), true);
+});
 
 test("dataset check accepts matched JSON files and warns about unmatched files", () => {
   const root = mkdtempSync(join(tmpdir(), "gsb-cli-dataset-"));
