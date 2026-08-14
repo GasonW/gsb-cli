@@ -42,7 +42,7 @@ The platform repository owns the HTTP API. This CLI depends on the following sta
 
 - `folder_name` string, required. Dataset display/storage name.
 - `format` string, optional. New GSB inputs use `aidp-jsonl`; omitted means legacy JSON directory upload.
-- `files` object, required. For `aidp-jsonl`, it contains exactly one `.jsonl` file; legacy uploads contain `.json` files.
+- `files` object, required. For `aidp-jsonl`, it contains exactly one `.json`, `.jsonl`, or `.ndjson` file; the server normalizes it to canonical `input.jsonl`. Legacy directory uploads contain multiple `.json` files.
 - `on_duplicate` string, optional. Supported values are `fail`, `reuse`, `replace`, and `force_new`; default is `fail`.
 
 Dataset upload response rules:
@@ -58,7 +58,9 @@ Dataset upload response rules:
 - Preferred: `{ "dataset_id": "<aidp-jsonl-dataset-id>" }`. The platform copies it to the task root as the sole `input.jsonl` and reads A/B rows directly.
 - Legacy: `{ "dirs": ["<server-dir-a>", "<server-dir-b>"] }`.
 
-Direct browser upload may send exactly one `.jsonl` file as multipart form data to the same endpoint.
+Direct browser upload may send exactly one `.json`, `.jsonl`, or `.ndjson` file as multipart form data to the same endpoint. JSON may be a top-level array or an object containing `records`/`items`; each task item keeps only its own record as `sourceText`.
+
+Optional `traceA` and `traceB` fields are arrays of JSON-serialized object strings. Invalid Trace values fail validation; valid values are preserved in canonical task input.
 Binding a different raw input over an existing task returns `TASK_INPUT_REVISION_REQUIRED` unless an intentional draft replacement is explicitly requested.
 
 `GET /api/tasks/{task_id}/status` returns the Agent-facing task state. It should not expose raw task registry `config` internals. The stable top-level fields are:

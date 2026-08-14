@@ -162,7 +162,7 @@ export GSB_PASSWORD="<password>"
 gsb-cli auth login --username <user> --json
 ```
 
-准备一份与 AIDP 相同格式的 A/B JSONL。一行就是一道题，至少包含
+准备一份与 AIDP 相同格式的 A/B JSON 或 JSONL。JSON 可使用数组或 `records/items` 包装，JSONL 一行就是一道题；至少包含
 `taskName/queryId/query/versionAName/versionBName/responseA/responseB/productCardsA/productCardsB`。
 
 ```text
@@ -177,7 +177,7 @@ gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
 ```
 
 历史任务仍可使用 `dataset check/upload --a <dir-a> --b <dir-b>` 和
-`task bind --a <dataset-a> --b <dataset-b>`；新任务应使用单 JSONL，避免维护两种输入变体。
+`task bind --a <dataset-a> --b <dataset-b>`；新任务应使用单个统一输入，平台会规范化为根级 `input.jsonl`。
 
 同名数据集上传规则：
 
@@ -270,7 +270,7 @@ gsb-cli task archive <task-id> --json
 
 ## 数据格式
 
-标准输入是一份 AIDP-compatible JSONL，每行同时包含同一道题的 A/B 数据。
+标准输入是一份 AIDP-compatible JSON/JSONL，每条记录同时包含同一道题的 A/B 数据。
 
 ```text
 input.jsonl
@@ -278,11 +278,12 @@ input.jsonl
 
 规则：
 
-- 每个非空行是 JSON object。
+- JSONL 每个非空行是 JSON object；JSON 使用 object、array 或 `records/items` 包装。
 - `queryId` 在文件内唯一。
 - `taskName`、`versionAName`、`versionBName` 在所有行中一致。
 - `productCardsA/productCardsB` 是 JSON 字符串数组；无商品卡时为 `[]`。
-- CSV、XLSX、非标准 JSONL、NDJSON、TSV 需要先转换成统一 JSONL contract。
+- 可选 `traceA/traceB` 是 JSON object 字符串数组；非法值会在上传前报错。
+- CSV、XLSX、非标准 JSON/JSONL、TSV 需要先转换成统一 contract。
 
 最小 JSONL 行示例：
 
@@ -296,7 +297,9 @@ input.jsonl
   "responseA": "版本 A 回复",
   "responseB": "版本 B 回复",
   "productCardsA": [],
-  "productCardsB": []
+  "productCardsB": [],
+  "traceA": ["{\"type\":\"tool_call\",\"name\":\"search\"}"],
+  "traceB": []
 }
 ```
 
@@ -394,7 +397,7 @@ CLI 失败时会尽量返回可修复的问题，而不是只给 HTTP 错误。
   "ok": false,
   "issues": [
     {
-      "code": "JSONL_DUPLICATE_QUERY_ID",
+      "code": "INPUT_DUPLICATE_QUERY_ID",
       "problem": "queryId 重复：item_0001",
       "evidence": {
         "line": 11,

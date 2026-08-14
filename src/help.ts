@@ -33,11 +33,11 @@ Commands:
   auth whoami
   auth logout
 
-  dataset check --input <aidp-compatible.jsonl>
+  dataset check --input <aidp-compatible.json|jsonl>
   dataset check <dir> --verbose                         # legacy
   dataset check --a <version-a-dir> --b <version-b-dir>
   dataset check --root <root> --version-a <name> --version-b <name>
-  dataset upload --input <aidp-compatible.jsonl> --name <name>
+  dataset upload --input <aidp-compatible.json|jsonl> --name <name>
   dataset upload <dir> --name <name>                    # legacy
   dataset upload --a <version-a-dir> --b <version-b-dir> --name-a <name> --name-b <name>
   dataset list

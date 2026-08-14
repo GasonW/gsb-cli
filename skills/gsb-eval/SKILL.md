@@ -35,7 +35,7 @@ npm 安装 `gsb-cli` 时会在 `postinstall` 阶段自动安装。环境变量 `
 ## 触发后的快速决策
 
 - 用户要"创建/发布 GSB 任务"：走任务工作流。
-- 用户给了符合 AIDP contract 的 JSONL：直接检查并上传；CSV/XLSX 或其他 JSONL 才需要先转换。
+- 用户给了符合 AIDP contract 的 JSON/JSONL：直接检查并上传；CSV/XLSX 或其他非标准数据才需要先转换。
 - 用户要"分析结果/生成报告/上线建议"：先回收结果，再按分析框架生成报告，最后上传归档。
 - 用户要"bad case/good case 分析"：优先做问题簇/能力簇归纳，不要只罗列 case。
 
@@ -58,7 +58,7 @@ gsb-cli auth register --base-url <platform-url> --username <user> --password <pa
 
 ## 数据格式与上传
 
-平台标准输入与 AIDP 一致：一个 JSONL，一行同时包含一道题的 A/B 数据：
+平台标准输入与 AIDP 一致：一个 JSON/JSONL，每条记录同时包含一道题的 A/B 数据；JSON 可使用数组或 `records/items` 包装：
 
 ```text
 input.jsonl
@@ -74,7 +74,7 @@ gsb-cli dataset list --json
 gsb-cli dataset guide --json
 ```
 
-先跑 `dataset check`。如果返回 `JSONL_*` 错误，按 `next_step` 修数据后再上传。旧双目录命令只用于历史兼容。
+先跑 `dataset check`。如果返回 `INPUT_*` 错误，按 `next_step` 修数据后再上传。`traceA/traceB` 如存在，必须是 JSON object 字符串数组。旧双目录命令只用于历史兼容。
 
 一个业务评估只能创建一个 task。task ID 和目录不得按执行平台拆成 `-aidp` / `-chatbuy-eval`
 两份，也不得创建 `aidp/`、`input/`、`data_a/`、`data_b/` 适配目录。平台只在 task 根目录

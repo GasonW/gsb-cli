@@ -1,8 +1,8 @@
-# GSB 统一 JSONL 输入
+# GSB 统一 JSON / JSONL 输入
 
 ## 标准格式
 
-AIDP 与 ChatBuy Eval 共用一个 JSONL。每个非空行是一个 JSON object，并完整包含同一道题的 A/B 数据：
+AIDP 与 ChatBuy Eval 共用一个标准输入。可使用逐行 JSONL，也可使用 JSON 数组或 `records/items` 包装对象；每条记录完整包含同一道题的 A/B 数据：
 
 ```json
 {"taskName":"candidate vs baseline","queryId":"item_001","query":"用户问题","versionAName":"baseline","versionBName":"candidate","responseA":"版本 A 回复","responseB":"版本 B 回复","productCardsA":[],"productCardsB":[]}
@@ -25,7 +25,7 @@ gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
 gsb-cli task bind <task-id> --input <jsonl-dataset-id> --json
 ```
 
-平台把文件保存为 task 根目录唯一的 `input.jsonl`，评估运行时直接读取。不要按平台复制 task，
+可选 `traceA/traceB` 必须是 JSON 序列化 object 的字符串数组。平台把上传文件规范化为 task 根目录唯一的 `input.jsonl`，评估运行时直接读取；“查看原始 JSON 数据”只返回当前题记录。不要按平台复制 task，
 也不要创建 `aidp/`、`input/`、`data_a/`、`data_b/` 适配目录。
 
 旧的 `--a <dir-a> --b <dir-b>` 命令只用于读取未迁移历史任务，不用于创建新任务。
