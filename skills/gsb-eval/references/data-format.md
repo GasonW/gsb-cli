@@ -40,6 +40,10 @@ workspace/annotation_sets/<YYMMDD-ModelA-vs-ModelB>/
 
 CLI 始终检查和上传其中一个精确 slice 文件；cohort、batch 和 revision 由文件名区分。
 
+上游不可变 raw run 使用可读路径：
+`workspace/model_runs/<benchmark-id>/<YYMMDD-ModelID>[-rN]/<YYMMDD-ModelID>[-rN].jsonl`。
+只有同日同模型存在多次跑测时才增加 `-rN`；平台 run ID 和原始文件名保留在 manifest。
+
 旧的 `--a <dir-a> --b <dir-b>` 命令只用于读取未迁移历史任务，不用于创建新任务。
 
 ## 平台渲染
