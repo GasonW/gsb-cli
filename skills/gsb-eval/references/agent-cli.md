@@ -218,10 +218,12 @@ gsb-cli task config <task-id> \
 | `task renderer upload` | `workspace/tasks/<task-id>/renderer.js` |
 | `results export` | `workspace/tasks/<task-id>/exports/` |
 | `report upload` | `workspace/tasks/<task-id>/report/` |
-| 评估者提交 | `workspace/tasks/<task-id>/rating_result/eval_<user>.json` |
+| 评估者提交 | `workspace/tasks/<task-id>/results/chatbuy-eval/normalized/eval_<user>.json` |
 
 报告发现以 task 目录为唯一来源；不要为多个 task 生成 workspace 级聚合页、report index 或 report archive。
 同一业务评估也不得按 `aidp` / `chatbuy-eval` 建两个 task；平台差异只记录为同一 task 的执行元数据。
+framework 管理的 task ID 使用 `YYMMDD-ModelA-ModelB[-remark]`，female/male 和各 batch
+聚合进同一份 `input.jsonl`；AIDP 返回多份结果时须先合并为该 task 的完整结果集再分析。
 
 #### 发布前检查
 

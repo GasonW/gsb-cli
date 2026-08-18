@@ -38,7 +38,9 @@ workspace/annotation_sets/<YYMMDD-ModelA-vs-ModelB>/
 └── male-batch-2-r1.jsonl
 ```
 
-CLI 始终检查和上传其中一个精确 slice 文件；cohort、batch 和 revision 由文件名区分。
+annotation archive 仍以 slice 文件保存和复用，但创建任务时要把选中的 female/male 与各
+batch slice 合并为一份 JSONL，再由 CLI 检查和上传。一个 task 对应一次模型对比，ID 使用
+`YYMMDD-ModelA-ModelB[-remark]`；cohort、batch 和 revision 只保留在来源引用中。
 
 上游不可变 raw run 使用可读路径：
 `workspace/model_runs/<benchmark-id>/<YYMMDD-ModelID>[-rN]/<YYMMDD-ModelID>[-rN].jsonl`。

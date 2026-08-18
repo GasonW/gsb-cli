@@ -79,6 +79,8 @@ gsb-cli dataset guide --json
 一个业务评估只能创建一个 task。task ID 和目录不得按执行平台拆成 `-aidp` / `-chatbuy-eval`
 两份，也不得创建 `aidp/`、`input/`、`data_a/`、`data_b/` 适配目录。平台只在 task 根目录
 保存一个 `input.jsonl` 并直接读取；AIDP 与 ChatBuy Eval 的执行信息属于同一 task 的元数据。
+framework 管理的任务使用 `YYMMDD-ModelA-ModelB[-remark]`，并在同一份 `input.jsonl` 中聚合
+该模型对比的 female/male 和各 batch，不能再按 batch 建多个 task。
 
 同名数据集上传规则：100% 重复直接复用（`reused: true`）。同名但内容不同时默认失败，按提示使用 `--reuse`、`--replace`、`--new-name <name>` 或 `--force-new`。
 

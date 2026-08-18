@@ -177,13 +177,14 @@ gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
 ```
 
 如果输入来自 framework 的可复用加工数据，annotation archive 按一次模型对比分组：
-`workspace/annotation_sets/<YYMMDD-ModelA-vs-ModelB>/`。上传时选择其中精确的
-`<cohort>-batch-<N>-r<N>.jsonl`，不要把整个目录当成一份数据集。
+`workspace/annotation_sets/<YYMMDD-ModelA-vs-ModelB>/`。创建任务前，先把该对比需要的
+female/male 与各 batch slice 合并成一份输入；一个 task 不再按 cohort 或 batch 拆分。
+framework 管理的 task ID 使用 `YYMMDD-ModelA-ModelB[-remark]`。
 上游 raw run 使用 `workspace/model_runs/<benchmark-id>/<YYMMDD-ModelID>[-rN]/`
 和同名 JSONL；平台短 run ID 只保存在 manifest 中。
 
 历史任务仍可使用 `dataset check/upload --a <dir-a> --b <dir-b>` 和
-`task bind --a <dataset-a> --b <dataset-b>`；新任务应使用单个统一输入，平台会规范化为根级 `input.jsonl`。
+`task bind --a <dataset-a> --b <dataset-b>`；新任务应使用聚合后的单个统一输入，平台会规范化为根级 `input.jsonl`。
 
 同名数据集上传规则：
 
@@ -390,7 +391,7 @@ export GSB_CLI_SESSION="/path/to/sessions.json"
 | `task renderer upload` | 写入 `workspace/tasks/<task-id>/renderer.js` |
 | `results export` | 在 `workspace/tasks/<task-id>/exports/` 生成导出文件 |
 | `report upload` | 写入 `workspace/tasks/<task-id>/report/` |
-| 评估者提交 | 写入 `workspace/tasks/<task-id>/rating_result/eval_<user>.json` |
+| 评估者提交 | 写入 `workspace/tasks/<task-id>/results/chatbuy-eval/normalized/eval_<user>.json` |
 
 ## 结构化错误
 
