@@ -176,6 +176,10 @@ gsb-cli dataset check --input ./input.jsonl --json
 gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
 ```
 
+如果输入来自 framework 的可复用加工数据，annotation archive 按一次模型对比分组：
+`workspace/annotation_sets/<YYMMDD-ModelA-vs-ModelB>/`。上传时选择其中精确的
+`<cohort>-batch-<N>-r<N>.jsonl`，不要把整个目录当成一份数据集。
+
 历史任务仍可使用 `dataset check/upload --a <dir-a> --b <dir-b>` 和
 `task bind --a <dataset-a> --b <dataset-b>`；新任务应使用单个统一输入，平台会规范化为根级 `input.jsonl`。
 

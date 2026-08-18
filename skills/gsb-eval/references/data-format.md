@@ -28,6 +28,18 @@ gsb-cli task bind <task-id> --input <jsonl-dataset-id> --json
 可选 `traceA/traceB` 必须是 JSON 序列化 object 的字符串数组。平台把上传文件规范化为 task 根目录唯一的 `input.jsonl`，评估运行时直接读取；“查看原始 JSON 数据”只返回当前题记录。不要按平台复制 task，
 也不要创建 `aidp/`、`input/`、`data_a/`、`data_b/` 适配目录。
 
+framework 内的 annotation archive 按 comparison group 组织：
+
+```text
+workspace/annotation_sets/<YYMMDD-ModelA-vs-ModelB>/
+├── female-batch-1-r1.jsonl
+├── female-batch-2-r1.jsonl
+├── male-batch-1-r1.jsonl
+└── male-batch-2-r1.jsonl
+```
+
+CLI 始终检查和上传其中一个精确 slice 文件；cohort、batch 和 revision 由文件名区分。
+
 旧的 `--a <dir-a> --b <dir-b>` 命令只用于读取未迁移历史任务，不用于创建新任务。
 
 ## 平台渲染
