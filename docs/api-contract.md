@@ -35,7 +35,7 @@ The platform repository owns the HTTP API. This CLI depends on the following sta
 
 - `name` string, required. Display name shown in task lists and management pages.
 - `purpose` string, optional. Creator-facing task purpose or reminder, distinct from evaluator-facing setup description.
-- `mode` string, optional. Supported values are `gsb` and `preview`; CLI defaults to `gsb`.
+- `mode` string, optional. New tasks support `gsb` and `review`; CLI defaults to `gsb`. The platform maps the deprecated `preview` alias and historical Preview tasks to Review when reading.
 - `task_id` string, optional. Storage directory id. When omitted, the platform derives a stable id from `name`.
 
 `POST /api/datasets/upload` request fields:
@@ -51,11 +51,11 @@ Dataset upload response rules:
 - Same dataset name with different content returns HTTP 409 and a structured code such as `DATASET_NAME_CONFLICT`.
 - `replace` overwrites the selected same-name dataset content and returns the reused dataset id with `replaced: true`.
 - `force_new` creates a new physical dataset storage name and returns the new dataset id.
-- `aidp-jsonl` responses include `format`, `row_count`, and `version_names`.
+- `aidp-jsonl` responses include `format`, `row_count`, `review_variant`, and `version_names`.
 
 `POST /tasks/{task_id}/api/select-dirs` supports two binding shapes:
 
-- Preferred: `{ "dataset_id": "<aidp-jsonl-dataset-id>" }`. The platform copies it to the task root as the sole `input.jsonl` and reads A/B rows directly.
+- Preferred: `{ "dataset_id": "<aidp-jsonl-dataset-id>" }`. The platform copies it to the task root as the sole `input.jsonl`. GSB requires complete A/B rows; Review accepts either complete A/B rows or single-side rows that omit the entire B field group.
 - Legacy: `{ "dirs": ["<server-dir-a>", "<server-dir-b>"] }`.
 
 Direct browser upload may send exactly one `.jsonl` file as multipart form data to the same endpoint.
@@ -80,6 +80,9 @@ Binding a different raw input over an existing task returns `TASK_INPUT_REVISION
 - Report status keeps `aggregate_dir` as an empty compatibility field; every `html_sources` and `json_sources` entry has `source: "task"`.
 
 `POST /tasks/{task_id}/api/export` JSON results include evaluator records with:
+
+- `task_mode` (`gsb` or `review`), `review_variant` (`single` or `comparison`), `review_result_type`, `has_score`, and `has_comment`.
+- Review results may be empty, score-only, comment-only, score-and-comment, or skip. Verdict statistics use only records with a valid verdict as their denominator.
 
 - `comments` object keyed by actual version name plus `general`.
 - `comments[version].items` as the canonical version-level global comment list. Each item may contain `id`, `side`, `version_key`, `version`, `target_type: "global"`, `comment`, `feedback_type`, `images`, and timestamps.

@@ -144,6 +144,45 @@ test("task create requires a task name before calling the platform", async () =>
   assert.equal(result.payload.message, "task create requires --name");
 });
 
+test("task create exposes review and rejects the deprecated preview mode", async () => {
+  const invalid = await runCli(["task", "create", "--name", "old", "--mode", "preview", "--json"], {
+    env: { ...process.env, GSB_CLI_SESSION: join(tmpdir(), "unused-gsb-session.json") },
+  });
+  assert.equal(invalid.exitCode, 2);
+  assert.equal(invalid.payload.message, "--mode must be gsb or review");
+
+  const seen: unknown[] = [];
+  const server = createServer(async (req, res) => {
+    const body = await readJson(req);
+    seen.push(body);
+    if (req.url === "/api/tasks") {
+      return sendJson(res, { task: { id: "review-1", name: "Review", mode: "review", status: "draft" } });
+    }
+    return sendJson(res, { error: "not found" }, 404);
+  });
+  await listen(server);
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const sessionFile = join(mkdtempSync(join(tmpdir(), "gsb-cli-session-")), "sessions.json");
+    writeFileSync(sessionFile, JSON.stringify({ default: {
+      base_url: baseUrl, username: "pm", role: "admin", session_token: "session",
+    } }));
+    const result = await runCli([
+      "task", "create", "--base-url", baseUrl, "--name", "Review", "--mode", "review", "--json",
+    ], { env: { ...process.env, GSB_CLI_SESSION: sessionFile } });
+    assert.equal(result.exitCode, 0);
+    assert.equal((seen[0] as { mode?: string }).mode, "review");
+    assert.deepEqual(result.payload.next_commands, [
+      "gsb-cli task bind review-1 --input <jsonl-dataset>",
+      "gsb-cli task publish review-1",
+    ]);
+  } finally {
+    await close(server);
+  }
+});
+
 test("remote task bind refuses local paths and tells user to upload first", async () => {
   const localDataset = mkdtempSync(join(tmpdir(), "gsb-cli-local-dataset-"));
   mkdirSync(join(localDataset, "nested"));

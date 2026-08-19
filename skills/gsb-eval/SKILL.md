@@ -35,6 +35,7 @@ npm 安装 `gsb-cli` 时会在 `postinstall` 阶段自动安装。环境变量 `
 ## 触发后的快速决策
 
 - 用户要"创建/发布 GSB 任务"：走任务工作流。
+- 用户要可视化调试结果、记录结构问题而不是正式投票：创建 `review` 任务。Review 支持单边或 A/B JSONL，评分和评论均选填。
 - 用户给了符合 AIDP contract 的 JSONL：直接检查并上传；CSV/XLSX 或其他 JSONL 才需要先转换。
 - 用户要"分析结果/生成报告/上线建议"：先回收结果，再按分析框架生成报告，最后上传归档。
 - 用户要"bad case/good case 分析"：优先做问题簇/能力簇归纳，不要只罗列 case。
@@ -58,7 +59,7 @@ gsb-cli auth register --base-url <platform-url> --username <user> --password <pa
 
 ## 数据格式与上传
 
-平台标准输入与 AIDP 一致：一个 JSONL，一行同时包含一道题的 A/B 数据：
+平台标准输入与 AIDP 一致：一个 JSONL。GSB 每行包含一道题的完整 A/B 数据；Review 也可使用单边行：
 
 ```text
 input.jsonl
@@ -66,6 +67,8 @@ input.jsonl
 
 每行必填 `taskName`、`queryId`、`query`、`versionAName`、`versionBName`、
 `responseA`、`responseB`、`productCardsA`、`productCardsB`。`queryId` 唯一；任务名和版本名在文件内一致。
+
+单边 Review 整组省略 `versionBName`、`responseB`、`productCardsB`；同一任务不能混合单边和对比行。
 
 ```bash
 gsb-cli dataset check --input ./input.jsonl --json
@@ -85,6 +88,16 @@ gsb-cli dataset guide --json
 详细数据格式约束见 `references/data-format.md`。
 
 ## 创建、配置和发布任务
+
+调试/问题记录场景：
+
+```bash
+gsb-cli task create --name "SP 结果 Review" --purpose "记录答案结构问题" --mode review --json
+gsb-cli task bind <task-id> --input <jsonl-dataset-id> --json
+gsb-cli task publish <task-id> --json
+```
+
+Review 不要求分配策略；空提交、只评分、只评论和评分加评论都是合法结果，不应当作正式 GSB 票分析。
 
 ```bash
 gsb-cli task create-gsb \

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { datasetCheckPayload, jsonlCheckPayload } from "../src/dataset.js";
+import type { JsonObject } from "../src/types.js";
 
 function aidpRow(queryId: string) {
   return {
@@ -29,6 +30,30 @@ test("dataset check validates one AIDP-compatible JSONL input", () => {
   assert.equal(payload.ok, true);
   assert.equal(payload.row_count, 2);
   assert.deepEqual(payload.version_names, { A: "model-a", B: "model-b" });
+  assert.equal(payload.review_variant, "comparison");
+});
+
+test("dataset check accepts single-side Review JSONL and rejects partial or mixed B fields", () => {
+  const root = mkdtempSync(join(tmpdir(), "gsb-cli-jsonl-"));
+  const input = join(root, "input.jsonl");
+  const single = aidpRow("q-1");
+  delete (single as Partial<typeof single>).versionBName;
+  delete (single as Partial<typeof single>).responseB;
+  delete (single as Partial<typeof single>).productCardsB;
+  writeFileSync(input, `${JSON.stringify(single)}\n`);
+  const valid = jsonlCheckPayload(input, "check");
+  assert.equal(valid.ok, true);
+  assert.equal(valid.review_variant, "single");
+
+  writeFileSync(input, `${JSON.stringify({ ...single, responseB: "partial" })}\n`);
+  const partial = jsonlCheckPayload(input, "check");
+  assert.equal(partial.ok, false);
+  assert.equal((partial.issues as JsonObject[]).some((item) => item.code === "JSONL_PARTIAL_B_SIDE"), true);
+
+  writeFileSync(input, `${JSON.stringify(single)}\n${JSON.stringify(aidpRow("q-2"))}\n`);
+  const mixed = jsonlCheckPayload(input, "check");
+  assert.equal(mixed.ok, false);
+  assert.equal((mixed.issues as JsonObject[]).some((item) => item.code === "JSONL_MIXED_REVIEW_VARIANTS"), true);
 });
 
 test("dataset check rejects duplicate JSONL query ids", () => {

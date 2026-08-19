@@ -448,11 +448,12 @@ async function cmdDatasetUpload(globals, args) {
             return {
                 payload: {
                     ok: true,
-                    message: "A/B JSONL 数据集上传完成",
+                    message: `${String(check.review_variant || "comparison") === "single" ? "单边 Review" : "A/B"} JSONL 数据集上传完成`,
                     uploaded: [publicDatasetPayload("input", data)],
                     check,
                     next_commands: [
                         `gsb-cli task create-gsb --name <task-name> --input ${String(data.id || "<dataset-id>")}`,
+                        `gsb-cli task create --name <task-name> --mode review`,
                         `gsb-cli task bind <task-id> --input ${String(data.id || "<dataset-id>")}`,
                     ],
                 },
@@ -544,8 +545,8 @@ async function cmdTaskCreate(globals, args) {
     if (!name.trim()) {
         throw new CliUsageError("task create requires --name");
     }
-    if (!["gsb", "preview"].includes(mode)) {
-        throw new CliUsageError("--mode must be gsb or preview");
+    if (!["gsb", "review"].includes(mode)) {
+        throw new CliUsageError("--mode must be gsb or review");
     }
     const client = await buildClient(globals);
     try {
@@ -560,10 +561,15 @@ async function cmdTaskCreate(globals, args) {
                     manage: `${client.baseUrl}/tasks/${task.id}/manage/`,
                     evaluate: `${client.baseUrl}/tasks/${task.id}/`,
                 },
-                next_commands: [
-                    `gsb-cli task bind ${task.id} --input <jsonl-dataset>`,
-                    `gsb-cli task setup ${task.id} --min-per-person 0`,
-                ],
+                next_commands: mode === "review"
+                    ? [
+                        `gsb-cli task bind ${task.id} --input <jsonl-dataset>`,
+                        `gsb-cli task publish ${task.id}`,
+                    ]
+                    : [
+                        `gsb-cli task bind ${task.id} --input <jsonl-dataset>`,
+                        `gsb-cli task setup ${task.id} --min-per-person 0`,
+                    ],
             },
             exitCode: 0,
         };

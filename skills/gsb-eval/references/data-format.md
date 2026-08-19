@@ -2,7 +2,7 @@
 
 ## 标准格式
 
-AIDP 与 ChatBuy Eval 共用一个 JSONL。每个非空行是一个 JSON object，并完整包含同一道题的 A/B 数据：
+AIDP 与 ChatBuy Eval 共用一个 JSONL。每个非空行是一个 JSON object。GSB 行完整包含同一道题的 A/B 数据：
 
 ```json
 {"taskName":"candidate vs baseline","queryId":"item_001","query":"用户问题","versionAName":"baseline","versionBName":"candidate","responseA":"版本 A 回复","responseB":"版本 B 回复","productCardsA":[],"productCardsB":[]}
@@ -16,6 +16,12 @@ AIDP 与 ChatBuy Eval 共用一个 JSONL。每个非空行是一个 JSON object�
 - `productCardsA`、`productCardsB`：JSON 字符串数组；无商品卡时为 `[]`
 
 `queryId` 在文件内唯一，只使用字母、数字、点、下划线或连字符。`taskName` 和两个版本名在所有行中保持一致。
+
+Review 使用同一格式：
+
+- 对比 Review 与 GSB 一样提供完整 A/B 字段。
+- 单边 Review 保留 A 侧字段，并整组省略 `versionBName`、`responseB`、`productCardsB`。
+- 同一个文件不能混合单边和对比行，也不能只提供部分 B 侧字段。
 
 ## 检查、上传和绑定
 

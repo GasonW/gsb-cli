@@ -100,7 +100,7 @@ gsb-cli auth logout --json
 gsb-cli dataset check --input ./input.jsonl --json
 ```
 
-返回 `row_count`、A/B 版本名和逐行 contract 问题。
+返回 `row_count`、`review_variant`、版本名和逐行 contract 问题。单边 Review 的 B 版本名为空。
 
 常见错误码：
 - `JSONL_FILE_NOT_FOUND` — 文件不存在
@@ -108,6 +108,8 @@ gsb-cli dataset check --input ./input.jsonl --json
 - `JSONL_REQUIRED_FIELD_INVALID` — 必填字段缺失或为空
 - `JSONL_DUPLICATE_QUERY_ID` — queryId 重复
 - `JSONL_HEADER_INCONSISTENT` — 任务名或版本名不一致
+- `JSONL_PARTIAL_B_SIDE` — 只提供了部分 B 侧字段
+- `JSONL_MIXED_REVIEW_VARIANTS` — 同一文件混入单边和对比行
 
 #### 上传数据集
 
@@ -142,6 +144,18 @@ gsb-cli dataset guide --json
 ### 4. 任务管理
 
 #### 创建任务
+
+Review（结果调试/问题记录，评分与评论均选填）：
+
+```bash
+gsb-cli task create --name "SP 结果 Review" --purpose "记录答案结构问题" --mode review --json
+gsb-cli task bind <task-id> --input <jsonl-dataset-id> --json
+gsb-cli task publish <task-id> --json
+```
+
+Review 不需要执行 `task setup`。新任务 mode 只有 `gsb` 和 `review`；`preview` 只作为服务端历史兼容别名。
+
+正式 GSB：
 
 ```bash
 gsb-cli task create-gsb \
@@ -208,7 +222,7 @@ gsb-cli task config <task-id> \
 
 | CLI 操作 | 平台 workspace 结果 |
 | --- | --- |
-| `dataset upload` | 保存一份原始 A/B JSONL，并更新 `workspace/uploads/_meta.json` |
+| `dataset upload` | 保存一份原始单边或 A/B JSONL，并更新 `workspace/uploads/_meta.json` |
 | `task create-gsb` | 创建任务、绑定数据快照、写入分配策略和 visibility，并运行 preflight |
 | `task create` | `workspace/tasks/<task-id>/` + 任务注册表 |
 | `task bind` | `workspace/tasks/<task-id>/input.jsonl` 和版本映射；运行时直接读取 |

@@ -17,11 +17,11 @@ const DEFAULT_RENDER_FIELDS = new Set([
     "case_uuid",
 ]);
 export const FORMAT_GUIDANCE = {
-    platform_requirement: "推荐上传一个 AIDP-compatible JSONL；每行同时包含同一题的 A/B 回复。旧的双版本 JSON 目录仍兼容。",
+    platform_requirement: "推荐上传一个统一 JSONL；GSB 每行包含完整 A/B，Review 可整组省略 B 侧字段。旧的 JSON 目录只读兼容。",
     preferred_jsonl_shape: {
         file: "input.jsonl",
         row: "taskName, queryId, query, versionAName, versionBName, responseA, responseB, productCardsA, productCardsB",
-        matching_rule: "一行就是一道完整 A/B 评估题；queryId 在文件内唯一，版本名在所有行中一致。",
+        matching_rule: "一行就是一道题；queryId 唯一。单边 Review 整组省略 B 字段，同一文件不能混合单边和对比行。",
     },
     gsb_folder_shape: {
         version_a: "<version-a>/<same-query-id>.json",
@@ -44,9 +44,8 @@ export const FORMAT_GUIDANCE = {
         "转换完成后重新运行 dataset check，再 upload/bind/publish。",
     ],
 };
-const JSONL_REQUIRED_STRINGS = [
-    "taskName", "queryId", "query", "versionAName", "versionBName", "responseA", "responseB",
-];
+const JSONL_REQUIRED_STRINGS = ["taskName", "queryId", "query", "versionAName", "responseA"];
+const JSONL_B_FIELDS = ["versionBName", "responseB", "productCardsB"];
 const SAFE_QUERY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/;
 export function jsonlCheckPayload(inputPath, continueCommand) {
     const path = datasetPath(inputPath);
@@ -64,6 +63,7 @@ export function jsonlCheckPayload(inputPath, continueCommand) {
     let versionAName = "";
     let versionBName = "";
     let rowCount = 0;
+    let reviewVariant = "";
     const lines = readFileSync(path, "utf8").split(/\r?\n/);
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
@@ -81,9 +81,27 @@ export function jsonlCheckPayload(inputPath, continueCommand) {
             issues.push(issue("JSONL_ROW_NOT_OBJECT", "error", `第 ${index + 1} 行顶层不是 object`, { line: index + 1 }, "平台按字段读取每一道题。", "把该行改为 JSON object。", continueCommand));
             continue;
         }
-        const missing = JSONL_REQUIRED_STRINGS.filter((key) => typeof row[key] !== "string" || !String(row[key]).trim());
+        const missing = JSONL_REQUIRED_STRINGS.filter((key) => typeof row[key] !== "string");
         if (missing.length) {
             issues.push(issue("JSONL_REQUIRED_FIELD_INVALID", "error", `第 ${index + 1} 行缺少必填字符串字段`, { line: index + 1, fields: missing }, "统一输入需要完整的题目、版本和回复字段。", "补齐 evidence.fields。", continueCommand));
+            continue;
+        }
+        if (!String(row.taskName).trim() || !String(row.versionAName).trim()) {
+            issues.push(issue("JSONL_REQUIRED_FIELD_INVALID", "error", `第 ${index + 1} 行任务名或 A 版本名为空`, { line: index + 1, fields: ["taskName", "versionAName"] }, "任务名和版本名用于定义一个稳定的 Review 输入。", "补齐 evidence.fields。", continueCommand));
+            continue;
+        }
+        const presentB = JSONL_B_FIELDS.filter((key) => Object.prototype.hasOwnProperty.call(row, key));
+        if (presentB.length !== 0 && presentB.length !== JSONL_B_FIELDS.length) {
+            issues.push(issue("JSONL_PARTIAL_B_SIDE", "error", `第 ${index + 1} 行 B 侧字段不完整`, { line: index + 1, missing: JSONL_B_FIELDS.filter((key) => !Object.prototype.hasOwnProperty.call(row, key)) }, "Review 输入的 B 侧字段必须整组存在或整组省略。", "补齐或删除整组 B 侧字段。", continueCommand));
+            continue;
+        }
+        const currentVariant = presentB.length ? "comparison" : "single";
+        if (currentVariant === "comparison" && (typeof row.versionBName !== "string" || !String(row.versionBName).trim() || typeof row.responseB !== "string")) {
+            issues.push(issue("JSONL_REQUIRED_FIELD_INVALID", "error", `第 ${index + 1} 行 B 侧字符串字段无效`, { line: index + 1, fields: ["versionBName", "responseB"] }, "对比输入需要完整 B 侧字段。", "修正 evidence.fields。", continueCommand));
+            continue;
+        }
+        if (reviewVariant && currentVariant !== reviewVariant) {
+            issues.push(issue("JSONL_MIXED_REVIEW_VARIANTS", "error", `第 ${index + 1} 行与前文的单边/对比形态不一致`, { line: index + 1, expected: reviewVariant, actual: currentVariant }, "同一个任务不能混合单边和 A/B Review 行。", "统一文件内所有行的 B 侧字段形态。", continueCommand));
             continue;
         }
         const queryId = String(row.queryId);
@@ -95,18 +113,20 @@ export function jsonlCheckPayload(inputPath, continueCommand) {
             issues.push(issue("JSONL_DUPLICATE_QUERY_ID", "error", `queryId 重复：${queryId}`, { line: index + 1, query_id: queryId }, "重复题目会覆盖原始证据。", "保证 queryId 在文件内唯一。", continueCommand));
             continue;
         }
-        for (const key of ["productCardsA", "productCardsB"]) {
+        for (const key of currentVariant === "comparison" ? ["productCardsA", "productCardsB"] : ["productCardsA"]) {
             const cards = row[key];
             if (!Array.isArray(cards) || cards.some((card) => typeof card !== "string" || !isJsonObjectString(card))) {
                 issues.push(issue("JSONL_PRODUCT_CARDS_INVALID", "error", `第 ${index + 1} 行 ${key} 必须是 JSON 字符串数组`, { line: index + 1, field: key }, "这与 AIDP 的列表字段 contract 一致。", "无商品卡时传 []；有卡时每项使用 JSON.stringify 后的 object。", continueCommand));
             }
         }
-        const current = [String(row.taskName).trim(), String(row.versionAName).trim(), String(row.versionBName).trim()];
+        const current = [String(row.taskName).trim(), String(row.versionAName).trim(), String(row.versionBName || "").trim()];
         if (rowCount && (current[0] !== taskName || current[1] !== versionAName || current[2] !== versionBName)) {
             issues.push(issue("JSONL_HEADER_INCONSISTENT", "error", `第 ${index + 1} 行的任务名或版本名不一致`, { line: index + 1, expected: { taskName, versionAName, versionBName } }, "一个输入文件对应一个固定的 A/B 任务。", "统一所有行的 taskName/versionAName/versionBName。", continueCommand));
         }
-        if (!rowCount)
+        if (!rowCount) {
             [taskName, versionAName, versionBName] = current;
+            reviewVariant = currentVariant;
+        }
         seen.add(queryId);
         rowCount += 1;
     }
@@ -114,7 +134,7 @@ export function jsonlCheckPayload(inputPath, continueCommand) {
         issues.push(issue("JSONL_EMPTY", "error", "JSONL 没有可用数据行", { path }, "空输入无法创建评估任务。", "至少写入一行完整 A/B 题目。", continueCommand));
     }
     const ok = !hasErrors(issues);
-    return { ok, type: "aidp_jsonl_check", message: ok ? "JSONL 数据检查通过" : "JSONL 数据检查失败", path, row_count: rowCount, task_name: taskName, version_names: { A: versionAName, B: versionBName }, issues };
+    return { ok, type: "aidp_jsonl_check", message: ok ? "JSONL 数据检查通过" : "JSONL 数据检查失败", path, row_count: rowCount, task_name: taskName, review_variant: reviewVariant, version_names: { A: versionAName, B: versionBName }, issues };
 }
 function isJsonObjectString(value) {
     try {

@@ -176,6 +176,16 @@ gsb-cli dataset check --input ./input.jsonl --json
 gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
 ```
 
+用于可视化调试和记录答案结构问题时，创建 Review 任务：
+
+```bash
+gsb-cli task create --name "SP 结果 Review" --purpose "记录答案结构问题" --mode review --json
+gsb-cli task bind <task-id> --input <jsonl-dataset-id> --json
+gsb-cli task publish <task-id> --json
+```
+
+Review 支持单边或 A/B JSONL；评分和评论均选填，允许空提交、只评分或只评论。单边 JSONL 整组省略 `versionBName`、`responseB`、`productCardsB`。
+
 历史任务仍可使用 `dataset check/upload --a <dir-a> --b <dir-b>` 和
 `task bind --a <dataset-a> --b <dataset-b>`；新任务应使用单 JSONL，避免维护两种输入变体。
 
