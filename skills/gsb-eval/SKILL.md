@@ -97,7 +97,7 @@ gsb-cli task bind <task-id> --input <jsonl-dataset-id> --json
 gsb-cli task publish <task-id> --json
 ```
 
-Review 不要求分配策略；空提交、只评分、只评论和评分加评论都是合法结果，不应当作正式 GSB 票分析。
+Review 不要求分配策略；空提交、只评分、只评论和评分加评论都是合法结果，不应当作正式 GSB 票分析。Review 页面默认使用透明模式并显示真实版本名；透明模式固定 A 在左、B 在右，黑盒模式才按题目和评估者稳定打散左右位置。
 
 ```bash
 gsb-cli task create-gsb \

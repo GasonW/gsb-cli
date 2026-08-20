@@ -38,6 +38,8 @@ The platform repository owns the HTTP API. This CLI depends on the following sta
 - `mode` string, optional. New tasks support `gsb` and `review`; CLI defaults to `gsb`. The platform maps the deprecated `preview` alias and historical Preview tasks to Review when reading.
 - `task_id` string, optional. Storage directory id. When omitted, the platform derives a stable id from `name`.
 
+Evaluator display behavior is task-aware: Review opens in transparent mode and displays actual version names by default. Transparent mode preserves source order (`A` left, `B` right) for both GSB and Review; blind mode keeps deterministic per-evaluator/per-query side randomization.
+
 `POST /api/datasets/upload` request fields:
 
 - `folder_name` string, required. Dataset display/storage name.

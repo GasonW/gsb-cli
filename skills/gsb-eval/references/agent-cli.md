@@ -153,7 +153,7 @@ gsb-cli task bind <task-id> --input <jsonl-dataset-id> --json
 gsb-cli task publish <task-id> --json
 ```
 
-Review 不需要执行 `task setup`。新任务 mode 只有 `gsb` 和 `review`；`preview` 只作为服务端历史兼容别名。
+Review 不需要执行 `task setup`。新任务 mode 只有 `gsb` 和 `review`；`preview` 只作为服务端历史兼容别名。Review 页面默认使用透明模式并显示真实版本名；透明模式固定 A 在左、B 在右，黑盒模式才按题目和评估者稳定打散左右位置。
 
 正式 GSB：
 

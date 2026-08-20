@@ -184,7 +184,7 @@ gsb-cli task bind <task-id> --input <jsonl-dataset-id> --json
 gsb-cli task publish <task-id> --json
 ```
 
-Review 支持单边或 A/B JSONL；评分和评论均选填，允许空提交、只评分或只评论。单边 JSONL 整组省略 `versionBName`、`responseB`、`productCardsB`。
+Review 支持单边或 A/B JSONL；评分和评论均选填，允许空提交、只评分或只评论。单边 JSONL 整组省略 `versionBName`、`responseB`、`productCardsB`。Review 页面默认使用透明模式并显示真实版本名；透明模式固定 A 在左、B 在右，黑盒模式才按题目和评估者稳定打散左右位置。
 
 历史任务仍可使用 `dataset check/upload --a <dir-a> --b <dir-b>` 和
 `task bind --a <dataset-a> --b <dataset-b>`；新任务应使用单 JSONL，避免维护两种输入变体。
