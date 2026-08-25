@@ -46,6 +46,8 @@ export interface SessionData {
   username?: string;
   role?: string;
   session_token?: string;
+  csrf_token?: string;
+  web_did?: string;
 }
 
 export interface DatasetInfo {
@@ -67,5 +69,7 @@ export interface DatasetInfo {
 export interface ApiClientOptions {
   baseUrl: string;
   sessionToken?: string;
+  csrfToken?: string;
+  webDid?: string;
   timeoutMs?: number;
 }

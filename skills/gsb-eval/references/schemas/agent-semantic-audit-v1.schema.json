@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-semantic-audit-v1.schema.json",
+  "title": "GSB Agent Semantic Audit v1 JSONL record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "query_id",
+    "blind_review_refs",
+    "position_consistency",
+    "comment_reviews",
+    "conflicts",
+    "verdict",
+    "confidence",
+    "primary_root",
+    "secondary_roots",
+    "summary",
+    "evidence_refs",
+    "needs_human_review",
+    "regression_eligible"
+  ],
+  "properties": {
+    "schema_version": {"const": "gsb-agent-semantic-audit/v1"},
+    "query_id": {"type": "string", "minLength": 1},
+    "blind_review_refs": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "position_consistency": {"enum": ["consistent", "inconsistent", "undetermined"]},
+    "comment_reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["comment_id", "source", "target_model", "status", "reason", "evidence_refs"],
+        "properties": {
+          "comment_id": {"type": "string", "minLength": 1},
+          "source": {"type": "string", "minLength": 1},
+          "target_model": {"type": "string", "minLength": 1},
+          "status": {"enum": ["supported", "partially_supported", "unsupported", "misattributed", "subjective", "requires_fact_check"]},
+          "reason": {"type": "string", "minLength": 1},
+          "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        },
+        "additionalProperties": false
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "description", "severity"],
+        "properties": {
+          "type": {"type": "string", "minLength": 1},
+          "description": {"type": "string", "minLength": 1},
+          "severity": {"enum": ["severe", "soft"]}
+        },
+        "additionalProperties": false
+      }
+    },
+    "verdict": {"enum": ["real_regression", "insufficient", "suspected_annotation_noise", "improvement", "stable"]},
+    "confidence": {"enum": ["high", "medium", "low"]},
+    "primary_root": {
+      "enum": ["decision_coverage", "constraint_mismatch", "product_card_binding", "fact_reasoning", "comparison_decision", "presentation_language", "profile_misuse", "common_failure", "evaluation_noise"]
+    },
+    "secondary_roots": {
+      "type": "array",
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["decision_coverage", "constraint_mismatch", "product_card_binding", "fact_reasoning", "comparison_decision", "presentation_language", "profile_misuse", "common_failure", "evaluation_noise"]
+      }
+    },
+    "summary": {"type": "string", "minLength": 1},
+    "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "requires_fact_check": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "needs_human_review": {"type": "boolean"},
+    "regression_eligible": {"type": "boolean"},
+    "generated_at": {"type": "string"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"verdict": {"const": "suspected_annotation_noise"}}, "required": ["verdict"]},
+      "then": {"properties": {"needs_human_review": {"const": true}, "regression_eligible": {"const": false}}}
+    },
+    {
+      "if": {"properties": {"verdict": {"enum": ["insufficient", "improvement", "stable"]}}, "required": ["verdict"]},
+      "then": {"properties": {"regression_eligible": {"const": false}}}
+    },
+    {
+      "if": {"properties": {"regression_eligible": {"const": true}}, "required": ["regression_eligible"]},
+      "then": {
+        "properties": {
+          "verdict": {"const": "real_regression"},
+          "confidence": {"enum": ["high", "medium"]},
+          "needs_human_review": {"const": false}
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

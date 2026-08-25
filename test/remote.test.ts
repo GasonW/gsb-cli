@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -14,8 +14,8 @@ test("CLI version matches package.json", async () => {
   assert.equal(CLI_VERSION, pkg.version);
 });
 
-test("CLI logs in and creates a task against the server selected by --base-url", async () => {
-  const seen: Array<{ method: string; path: string; body: unknown; cookie: string }> = [];
+test("CLI bootstraps CSRF, logs in, and reuses the saved cookies", async () => {
+  const seen: Array<{ method: string; path: string; body: unknown; cookie: string; csrf: string }> = [];
   const server = createServer(async (req, res) => {
     const body = await readJson(req);
     seen.push({
@@ -23,8 +23,20 @@ test("CLI logs in and creates a task against the server selected by --base-url",
       path: req.url || "",
       body,
       cookie: req.headers.cookie || "",
+      csrf: String(req.headers["x-suda-csrf-token"] || ""),
     });
+    if (req.method === "GET" && req.url === "/login") {
+      res.setHeader("set-cookie", [
+        "suda-csrf-token=remote-csrf; Path=/",
+        "suda_web_did=remote-web-did; Path=/; HttpOnly",
+      ]);
+      res.statusCode = 200;
+      return res.end("<!doctype html><title>login</title>");
+    }
     if (req.method === "POST" && req.url === "/api/auth/login") {
+      assert.match(req.headers.cookie || "", /suda-csrf-token=remote-csrf/);
+      assert.match(req.headers.cookie || "", /suda_web_did=remote-web-did/);
+      assert.equal(req.headers["x-suda-csrf-token"], "remote-csrf");
       res.setHeader("set-cookie", "session_token=remote-session; Path=/");
       return sendJson(res, { username: "pm", role: "admin" });
     }
@@ -42,7 +54,7 @@ test("CLI logs in and creates a task against the server selected by --base-url",
           name: (body as { name?: string }).name,
           purpose: (body as { purpose?: string }).purpose,
           status: "draft",
-          mode: "gsb",
+          mode: (body as { mode?: string }).mode,
         },
       });
     }
@@ -59,7 +71,12 @@ test("CLI logs in and creates a task against the server selected by --base-url",
     const login = await runCli(["auth", "login", "--base-url", baseUrl, "--username", "pm", "--password", "pw", "--json"], { env });
     assert.equal(login.exitCode, 0);
     assert.equal(login.payload.base_url, baseUrl);
-    assert.equal(JSON.parse(readFileSync(sessionFile, "utf8")).default.session_token, "remote-session");
+    const saved = JSON.parse(readFileSync(sessionFile, "utf8")).default;
+    assert.equal(saved.session_token, "remote-session");
+    assert.equal(saved.csrf_token, "remote-csrf");
+    assert.equal(saved.web_did, "remote-web-did");
+    assert.equal(statSync(sessionFile).mode & 0o777, 0o600);
+    assert.equal(login.payload.auth_protocol, "suda-double-submit-csrf");
 
     const create = await runCli([
       "task",
@@ -70,6 +87,8 @@ test("CLI logs in and creates a task against the server selected by --base-url",
       "remote task",
       "--purpose",
       "Compare answer quality for the launch candidate.",
+      "--mode",
+      "review",
       "--json",
     ], { env });
     assert.equal(create.exitCode, 0);
@@ -78,15 +97,20 @@ test("CLI logs in and creates a task against the server selected by --base-url",
       name: "remote task",
       purpose: "Compare answer quality for the launch candidate.",
       status: "draft",
-      mode: "gsb",
+      mode: "review",
     });
-    assert.deepEqual(seen[1]?.body, {
+    assert.deepEqual(seen[2]?.body, {
       name: "remote task",
       purpose: "Compare answer quality for the launch candidate.",
-      mode: "gsb",
+      mode: "review",
       task_id: "",
     });
+    assert.match(String(create.payload.next_steps), /0\/1\/2\/3/);
+    assert.match(String(create.payload.next_steps), /no GSB verdict/);
+    assert.equal(seen[2]?.csrf, "remote-csrf");
+    assert.match(seen[2]?.cookie || "", /session_token=remote-session/);
     assert.deepEqual(seen.map((item) => `${item.method} ${item.path}`), [
+      "GET /login",
       "POST /api/auth/login",
       "POST /api/tasks",
     ]);
@@ -100,7 +124,13 @@ test("CLI registers a user and saves the returned session", async () => {
   const server = createServer(async (req, res) => {
     const body = await readJson(req);
     seen.push({ method: req.method || "", path: req.url || "", body });
+    if (req.method === "GET" && req.url === "/login") {
+      res.setHeader("set-cookie", "suda-csrf-token=register-csrf; Path=/");
+      res.statusCode = 200;
+      return res.end("<!doctype html><title>login</title>");
+    }
     if (req.method === "POST" && req.url === "/api/auth/register") {
+      assert.equal(req.headers["x-suda-csrf-token"], "register-csrf");
       res.setHeader("set-cookie", "session_token=registered-session; Path=/");
       return sendJson(res, { ok: true, username: "new_user", role: "evaluator" });
     }
@@ -129,7 +159,84 @@ test("CLI registers a user and saves the returned session", async () => {
     assert.equal(result.exitCode, 0);
     assert.equal(result.payload.username, "new_user");
     assert.equal(JSON.parse(readFileSync(sessionFile, "utf8")).default.session_token, "registered-session");
-    assert.deepEqual(seen[0]?.body, { username: "new_user", password: "secret123" });
+    assert.equal(JSON.parse(readFileSync(sessionFile, "utf8")).default.csrf_token, "register-csrf");
+    assert.deepEqual(seen[1]?.body, { username: "new_user", password: "secret123" });
+  } finally {
+    await close(server);
+  }
+});
+
+test("CLI upgrades an old session after the platform returns a CSRF gate error", async () => {
+  const seen: string[] = [];
+  const server = createServer(async (req, res) => {
+    seen.push(`${req.method} ${req.url}`);
+    if (req.method === "GET" && req.url === "/login") {
+      res.setHeader("set-cookie", "suda-csrf-token=recovered-csrf; Path=/");
+      res.statusCode = 200;
+      return res.end("<!doctype html><title>login</title>");
+    }
+    if (req.method === "GET" && req.url === "/api/auth/me") {
+      if (!req.headers.cookie?.includes("suda-csrf-token=recovered-csrf")) {
+        res.statusCode = 403;
+        return res.end("Forbidden, csrf token not found in cookie.");
+      }
+      assert.equal(req.headers["x-suda-csrf-token"], "recovered-csrf");
+      assert.match(req.headers.cookie, /session_token=old-session/);
+      return sendJson(res, { username: "pm", role: "admin" });
+    }
+    return sendJson(res, { error: "not found" }, 404);
+  });
+  await listen(server);
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const sessionFile = join(mkdtempSync(join(tmpdir(), "gsb-cli-old-session-")), "sessions.json");
+    writeFileSync(sessionFile, JSON.stringify({ default: { base_url: baseUrl, session_token: "old-session" } }));
+
+    const result = await runCli(["auth", "whoami", "--json"], {
+      env: { ...process.env, GSB_CLI_SESSION: sessionFile },
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(seen, ["GET /api/auth/me", "GET /login", "GET /api/auth/me"]);
+    const upgraded = JSON.parse(readFileSync(sessionFile, "utf8")).default;
+    assert.equal(upgraded.session_token, "old-session");
+    assert.equal(upgraded.csrf_token, "recovered-csrf");
+    assert.equal(statSync(sessionFile).mode & 0o777, 0o600);
+  } finally {
+    await close(server);
+  }
+});
+
+test("CLI login remains compatible with a legacy server without CSRF", async () => {
+  const seen: string[] = [];
+  const server = createServer(async (req, res) => {
+    seen.push(`${req.method} ${req.url}`);
+    if (req.method === "GET" && req.url === "/login") {
+      res.statusCode = 200;
+      return res.end("<!doctype html><title>legacy login</title>");
+    }
+    if (req.method === "POST" && req.url === "/api/auth/login") {
+      assert.equal(req.headers["x-suda-csrf-token"], undefined);
+      res.setHeader("set-cookie", "session_token=legacy-session; Path=/");
+      return sendJson(res, { username: "legacy", role: "admin" });
+    }
+    return sendJson(res, { error: "not found" }, 404);
+  });
+  await listen(server);
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const sessionFile = join(mkdtempSync(join(tmpdir(), "gsb-cli-legacy-login-")), "sessions.json");
+    const result = await runCli([
+      "auth", "login", "--base-url", baseUrl, "--username", "legacy", "--password", "pw", "--json",
+    ], { env: { ...process.env, GSB_CLI_SESSION: sessionFile } });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.payload.auth_protocol, "legacy-session-cookie");
+    assert.deepEqual(seen, ["GET /login", "POST /api/auth/login"]);
   } finally {
     await close(server);
   }
@@ -644,6 +751,42 @@ test("CLI uploads archived task reports to the remote platform", async () => {
   }
 });
 
+test("CLI rejects fixed task review links in a v2 decision report before upload", async () => {
+  const reportDir = mkdtempSync(join(tmpdir(), "gsb-cli-report-v2-preflight-"));
+  const htmlFile = join(reportDir, "decision_report.html");
+  const jsonFile = join(reportDir, "decision_summary.json");
+  writeFileSync(htmlFile, '<html><a href="/tasks/task_1/review/?q=q1">case</a></html>');
+  writeFileSync(jsonFile, JSON.stringify({
+    protocol_version: "gsb-decision-v2",
+    source_analysis_run_id: "run-1",
+  }));
+
+  const upload = await runCli([
+    "report", "upload", "task_1", htmlFile, jsonFile, "--json",
+  ], { env: { ...process.env, GSB_CLI_SESSION: join(tmpdir(), "unused-gsb-session.json") } });
+
+  assert.equal(upload.exitCode, 2);
+  assert.match(String(upload.payload.message), /review links must use/);
+});
+
+test("CLI rejects fixed task artifact links in a v2 decision report before upload", async () => {
+  const reportDir = mkdtempSync(join(tmpdir(), "gsb-cli-report-v2-artifact-preflight-"));
+  const htmlFile = join(reportDir, "decision_report.html");
+  const jsonFile = join(reportDir, "decision_summary.json");
+  writeFileSync(htmlFile, '<html><a data-web-href="/tasks/task_1/artifacts/download?path=benchmark.jsonl">download</a></html>');
+  writeFileSync(jsonFile, JSON.stringify({
+    protocol_version: "gsb-decision-v2",
+    source_analysis_run_id: "run-1",
+  }));
+
+  const upload = await runCli([
+    "report", "upload", "task_1", htmlFile, jsonFile, "--json",
+  ], { env: { ...process.env, GSB_CLI_SESSION: join(tmpdir(), "unused-gsb-session.json") } });
+
+  assert.equal(upload.exitCode, 2);
+  assert.match(String(upload.payload.message), /artifact links must use/);
+});
+
 test("CLI archives a completed task through the remote platform API", async () => {
   const seen: Array<string> = [];
   const server = createServer(async (req, res) => {
@@ -681,6 +824,29 @@ test("skill install copies bundled skill into the selected Agent skills director
   const install = await runCli(["skill", "install", "--target", "codex", "--mode", "copy", "--force", "--json"], { env });
   assert.equal(install.exitCode, 0);
   assert.equal(existsSync(join(codexRoot, "gsb-eval", "SKILL.md")), true);
+  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "analysis.md")), true);
+  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "decision-report.md")), true);
+  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "semantic-analysis.md")), true);
+  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "schemas", "agent-blind-review-v1.schema.json")), true);
+  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "schemas", "agent-semantic-audit-v1.schema.json")), true);
+  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "case-analysis-report.md")), false);
+  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "analysis-v2.md")), false);
+  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "decision-report-v1.md")), false);
+  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "decision-report-v2.md")), false);
+  const installedSkill = readFileSync(join(codexRoot, "gsb-eval", "SKILL.md"), "utf8");
+  assert.match(installedSkill, /## 生成分析文件/);
+  assert.match(installedSkill, /## 归档分析文件/);
+  assert.match(installedSkill, /唯一可直接调用的统计分析入口/);
+  assert.match(installedSkill, /references\/semantic-analysis\.md/);
+  assert.match(installedSkill, /--no-publish/);
+  assert.match(installedSkill, /method_overrides/);
+  const semanticProtocol = readFileSync(join(codexRoot, "gsb-eval", "references", "semantic-analysis.md"), "utf8");
+  assert.match(semanticProtocol, /覆盖全部已有评估结果的题目/);
+  assert.match(semanticProtocol, /Pass 2：交换输入顺序 B\/A/);
+  const blindSchema = JSON.parse(readFileSync(join(codexRoot, "gsb-eval", "references", "schemas", "agent-blind-review-v1.schema.json"), "utf8")) as { properties?: { schema_version?: { const?: string } } };
+  const semanticSchema = JSON.parse(readFileSync(join(codexRoot, "gsb-eval", "references", "schemas", "agent-semantic-audit-v1.schema.json"), "utf8")) as { properties?: { schema_version?: { const?: string } } };
+  assert.equal(blindSchema.properties?.schema_version?.const, "gsb-agent-blind-review/v1");
+  assert.equal(semanticSchema.properties?.schema_version?.const, "gsb-agent-semantic-audit/v1");
 
   const status = await runCli(["skill", "status", "--target", "codex", "--json"], { env });
   assert.equal(status.exitCode, 0);

@@ -16,8 +16,10 @@ gsb-cli task publish <task-id> --json
 # → 将返回的 urls.eval 发给评估者
 # → 评估完成后：
 gsb-cli results export <task-id> --format json --output ./exports --json
-# → 分析结果（按 L0→L4 框架）并生成报告
-gsb-cli report upload <task-id> ./decision_report.html ./decision_summary.json --json
+# → 生成不可覆盖的分析 run；从 JSON 输出读取 report 和 summary 路径
+python3 scripts/build_gsb_decision_report.py --task <task-id> --config ./analysis_config.json --no-publish
+# → 确认分析结果后再归档
+gsb-cli report upload <task-id> <report-path> <summary-path> --json
 ```
 
 每步优先读取返回中的 `next_commands`。出错的按 `issues[].next_step` 修复后用 `continue_after_fix.command` 继续。
@@ -35,9 +37,11 @@ npm 安装 `gsb-cli` 时会在 `postinstall` 阶段自动安装。环境变量 `
 ## 触发后的快速决策
 
 - 用户要"创建/发布 GSB 任务"：走任务工作流。
+- 用户要"三模型 Review"：用 `task create --mode review` 创建；从返回的 `urls.manage` 上传 A/B/C Review JSONL，再执行 preflight/publish。当前 CLI dataset/bind 仍只支持 A/B AIDP 输入，不要误称已支持 Review 文件上传。
+- 三模型 Review 对每组 response 记录 `0/1/2/3` 绝对质量分和可选全局评论；不要要求或推断 GSB 胜负。
 - 用户给了符合 AIDP contract 的 JSONL：直接检查并上传；CSV/XLSX 或其他 JSONL 才需要先转换。
-- 用户要"分析结果/生成报告/上线建议"：先回收结果，再按分析框架生成报告，最后上传归档。
-- 用户要"bad case/good case 分析"：优先做问题簇/能力簇归纳，不要只罗列 case。
+- 用户要"分析结果/生成报告"：先回收结果，完整读取[分析协议](references/analysis.md)和[决策报告模板](references/decision-report.md)，生成分析文件；用户确认或任务要求归档时，再单独上传。
+- 用户要"为什么赢/输、根因、bad case/good case、标注噪声、Regression"：生成统计 run 后，必须完整读取并执行[语义分析协议](references/semantic-analysis.md)，通过结构化审核产物生成语义结论；不得凭评分、评论关键词或 Agent 直觉直接写原因。
 
 ## 认证
 
@@ -54,7 +58,7 @@ gsb-cli auth whoami --json
 gsb-cli auth register --base-url <platform-url> --username <user> --password <password> --json
 ```
 
-平台地址默认 `https://chatbuy-eval-boe.bytedance.net`，可通过 `GSB_BASE_URL` 环境变量或 `--base-url` 指定。Session 保存在 `~/.chatbuy_gsb_eval_cli/sessions.json`。
+平台地址默认 `https://chatbuy-eval-boe.bytedance.net`，可通过 `GSB_BASE_URL` 环境变量或 `--base-url` 指定。Session 保存在 `~/.chatbuy_gsb_eval_cli/sessions.json`。JS 后端的 Suda double-submit CSRF 由 CLI 自动预取、保存和携带；不要手工复制 cookie/token。旧 session 遇到明确的 CSRF 403 会自动补取 token 并重试一次。
 
 ## 数据格式与上传
 
@@ -77,8 +81,9 @@ gsb-cli dataset guide --json
 先跑 `dataset check`。如果返回 `JSONL_*` 错误，按 `next_step` 修数据后再上传。旧双目录命令只用于历史兼容。
 
 一个业务评估只能创建一个 task。task ID 和目录不得按执行平台拆成 `-aidp` / `-chatbuy-eval`
-两份，也不得创建 `aidp/`、`input/`、`data_a/`、`data_b/` 适配目录。平台只在 task 根目录
-保存一个 `input.jsonl` 并直接读取；AIDP 与 ChatBuy Eval 的执行信息属于同一 task 的元数据。
+两份，也不得创建 `aidp/`、`input/`、`data_a/`、`data_b/` 适配目录。本地 canonical task
+只保留一个 `input.jsonl`；线上 JS 后端把它绑定为同一 task 的 PostgreSQL item 快照。AIDP 与
+ChatBuy Eval 的执行信息属于同一 task 的元数据。
 
 同名数据集上传规则：100% 重复直接复用（`reused: true`）。同名但内容不同时默认失败，按提示使用 `--reuse`、`--replace`、`--new-name <name>` 或 `--force-new`。
 
@@ -127,72 +132,52 @@ gsb-cli results export <task-id> --format csv --output ./exports/results.csv --j
 
 启用了管理员审核时，分析优先使用已接受结果。
 
-## 生成并归档 Report
+## 分析方法
 
-生成 GSB Decision Report v1 并上传归档：
+- [分析协议](references/analysis.md)定义取数、清洗、聚合、统计、置信度和证据边界。
+- [决策报告模板](references/decision-report.md)定义报告结构、字段、交互和展示规则。
+- [语义分析协议](references/semantic-analysis.md)定义根因、Case、标注噪声和 Regression 的 LLM 审核方法，仅在需要这些结论时读取。
+
+以上 reference 是分析逻辑的唯一来源。Agent 不得在 SKILL、临时代码或写报告时另定分析单位、纳排规则、人员权重、冲突等级、Pairwise 编码、Bootstrap 单位、语义证据门槛或报告模块。只有用户明确要求修改方法时，才能按[分析协议](references/analysis.md)的覆盖规则创建新 run 并记录 `method_overrides`。
+
+## 生成分析文件
+
+`scripts/build_gsb_decision_report.py` 是 Agent 唯一可直接调用的统计分析入口。它内部加载平台分析实现包；不得直接调用或按单次任务改写内部包。
 
 ```bash
-gsb-cli report upload <task-id> ./decision_report.html ./decision_summary.json --json
+python3 scripts/build_gsb_decision_report.py \
+  --task <task-id> \
+  --config <analysis-config.json> \
+  --no-publish
+```
+
+命令输出 JSON，包含 `run_id`、`run_dir`、`report` 和 `summary`。分析文件只写入新的 `report/runs/<analysis-run-id>/`，不会更新 task `report/` 根目录。
+
+### 需要语义分析时
+
+1. 完整读取[语义分析协议](references/semantic-analysis.md)。
+2. 使用统计 run 中的完整题目证据执行全量双回答换位盲审和人工证据审核；产物必须满足对应 schema 的 `N / 2N / N` 覆盖要求。
+3. 将 `agent-blind-review.jsonl`、`agent-semantic-audit.jsonl` 和专项分析文件保存到同一 analysis run。只有这些结构化产物通过校验后，才能输出根因、能力簇、标注噪声或 Regression 结论；否则只保留统计报告和原始证据。
+
+## 归档分析文件
+
+用户确认归档后，使用生成命令返回的 `report` 和 `summary` 路径上传：
+
+```bash
+gsb-cli report upload <task-id> <report-path> <summary-path> --json
 gsb-cli report status <task-id> --json
 ```
 
-上传接口只接受 `.html` 和 `.json`。成功返回的 `urls.report` 是平台内可访问的报告地址。
-报告必须归属到当前 task 的 `report/`；不要创建 workspace 级 reports、report index 或 report archive。
-
-## 分析框架
-
-从"数据是否可信"到"是否值得上线"逐层推进：
-
-| 层次 | 内容 | 核心问题 |
-| --- | --- | --- |
-| L0 数据质量 | 锚点题、快答、位置偏好、样本量分层、审核状态 | 数据可信吗？噪声是否影响结论？ |
-| L1 总体胜负 | `winner`、`magnitude`、`quality_rating` 统计 | 候选版本整体赢了吗？赢多少？ |
-| L2 显著性 | 二项检验、Bootstrap CI、敏感性分析 | 提升是否稳健，还是随机波动？ |
-| L3 细粒度拆分 | 题型、评估者、query/case、结构指标 | 哪些场景提升，哪些场景退步？ |
-| L4 根因归纳 | 评论分类、双版本回复对照、问题簇/能力簇 | 为什么赢/输，下一步怎么改？ |
-
-关键原则：
-
-- v2 结果中 `winner` 已是实际版本名或 `"similar"`，不要再做 left/right 映射。
-- `magnitude` 表示显著/略好/相似；`quality_rating` 表示绝对质量。
-- `similar + below` 是两版共同低质，不等于 baseline 胜出。
-- 主结论按题目聚合而非只按评次聚合；用 `much_better=2`、`slightly_better=1`、`similar=0` 做方向分数。
-- 评论按版本名读取（`comments["candidate"].items`、`pros`、`cons`），不要按左右面板读取。
-- 全局评论是版本级 0-N 列表，位于 `comments[版本名].items`；每项可含 `feedback_type: "positive" | "negative" | null`、`comment`、`images`。划线/卡片评论位于 `anchored_comments`，其中 `target_type: "global"` 表示全局评论的同源存储项，分析划线定位时应过滤这类项。
-- 结构指标只能解释回答形态，不能单独证明质量好坏。
-- 样本少的评估者不自动视为低质；只有快答、锚点不一致、极端位置偏好等多信号叠加时才降权或标注风险。
-- 锚点题只用于评估者一致性和分群诊断，不作为模型胜负的直接证据。
-
-推荐报告结构：
-
-```text
-1. 一句话结论与上线建议
-2. 数据清洗与样本范围
-3. 核心结果 + 题型拆分
-4. 胜负原因总览
-5. 候选版本高共识胜出 case
-6. 候选版本高共识失利 case
-7. 两版都不好 / 低于预期 case
-8. 结构指标拆分
-9. 锚点题一致性检查（如有）
-10. 评估者画像
-```
-
-## Case 分析写法
-
-- 先归并问题簇或能力簇，再展开代表性 case。
-- 每个 case 至少包含评论、候选版本片段、baseline 片段、具体问题定位和改进动作。
-- 不只看输赢，也看是否能 drive 优化。
-- 多个题型指向同一根因时合并讲。
-- good case 要分析可迁移能力；bad case 要给可执行修复建议和 regression 覆盖建议。
+上传接口只接受 `decision_report.html` 和 `decision_summary.json`。上传前校验 summary 与 HTML 中的 `../review/?q=` 相对链接；上传后必须执行 `report status` 回读。成功返回的 `urls.report` 是平台内报告地址。
 
 ## 参考文件
 
 按需读取，不要一次性加载全部：
 
 - `references/agent-cli.md`：`gsb-cli` 完整命令说明和错误码速查。
-- `references/analysis.md`：L0-L4 统计分析方法论（含 Python 代码）。
-- `references/decision-report-v1.md`：默认决策报告协议。
-- `references/case-analysis-report.md`：case 分析报告写作规范。
+- `references/analysis.md`：Pointwise + Pairwise、多标注人员/质检、冲突、统计与置信度。
+- `references/decision-report.md`：默认决策报告结构、全量明细和交互协议。
+- `references/semantic-analysis.md`：需要原因、Case、噪声或 Regression 结论时强制执行的双回答换位盲审、评论证据审核、最终裁决和产物协议。
+- `references/schemas/agent-blind-review-v1.schema.json`、`references/schemas/agent-semantic-audit-v1.schema.json`：LLM 语义分析逐题 JSONL 的固定输出契约。
 - `references/data-format.md`：输入数据格式和目录约束。
 - `references/anchor-design.md`：锚点题设计与一致性诊断。

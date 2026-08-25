@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 export function expandHome(value) {
@@ -24,8 +24,7 @@ export function loadSessions(path) {
 export function saveSession(path, profile, data) {
     const sessions = loadSessions(path);
     sessions[profile] = data;
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify(sessions, null, 2)}\n`, "utf8");
+    writeSessions(path, sessions);
 }
 export function clearSession(path, profile) {
     const sessions = loadSessions(path);
@@ -33,8 +32,7 @@ export function clearSession(path, profile) {
         return;
     }
     delete sessions[profile];
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify(sessions, null, 2)}\n`, "utf8");
+    writeSessions(path, sessions);
 }
 export function clearAllSessions(path) {
     try {
@@ -43,4 +41,12 @@ export function clearAllSessions(path) {
     catch {
         // Nothing to clear.
     }
+}
+function writeSessions(path, sessions) {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    const temporary = `${path}.${process.pid}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(sessions, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    chmodSync(temporary, 0o600);
+    renameSync(temporary, path);
+    chmodSync(path, 0o600);
 }

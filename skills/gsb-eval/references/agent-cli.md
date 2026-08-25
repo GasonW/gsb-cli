@@ -50,7 +50,7 @@
 
 ### Session 管理
 
-Session 保存在 `~/.chatbuy_gsb_eval_cli/sessions.json`。平台重启后 token 失效会返回 401，重新 `auth login` 即可。
+Session 保存在 `~/.chatbuy_gsb_eval_cli/sessions.json`，文件权限为 `0600`，只包含 session/CSRF cookie 和非秘密账号元数据，不包含密码。JS 后端的 Suda double-submit CSRF 由 CLI 自动处理；不要把 token 复制到命令行。旧 session 遇到明确的 CSRF 403 会自动获取新 token 并重试一次。平台 session 失效返回 401 时再重新 `auth login`。
 
 环境变量方式（CI/自动化）：
 ```bash
@@ -68,7 +68,7 @@ export GSB_PASSWORD="<password>"
 ```bash
 gsb-cli doctor --json
 ```
-检查平台可达性和当前 session 状态。返回 `reachable`、`auth` 状态和当前用户信息。
+检查平台可达性和当前 session 状态。返回 `reachable`、`auth`、`auth_protocol` 和当前用户信息；当前 JS 部署应报告 `suda-double-submit-csrf`。
 
 ```bash
 gsb-cli version --check --json
@@ -158,6 +158,20 @@ gsb-cli task create-gsb \
 - 返回 `task.id` 和 `agent_summary`，后续命令均需此 ID
 - 默认 `min_per_person` 为共同题数的 15%，最小 10；默认锚点题数量为 `min_per_person` 的 10%，最小 3；默认 `show_trace=false`
 
+#### 创建三模型 Review 任务
+
+```bash
+gsb-cli task create \
+  --name "model1 / model2 / model3 review" \
+  --mode review \
+  --purpose "并排检查三组回答的质量分" \
+  --json
+```
+
+Review 输入是平台专用的 A/B/C JSONL（包含 `responseA`、`responseB`、`responseC`）。当前 CLI 可以创建、查询、预检和发布 Review 任务，但 `dataset upload` / `task bind` 仍是 A/B 合约；三模型文件请通过返回的 `urls.manage` 管理页上传，再执行 `gsb-cli task preflight <task-id> --json`。
+
+Review 页面分别记录 A/B/C 的 `0/1/2/3` 绝对质量分和可选全局评论，不出现 GSB 胜负模块。
+
 #### 绑定数据源
 
 ```bash
@@ -202,24 +216,23 @@ gsb-cli task config <task-id> \
 
 `task get <task-id> --json` 返回 Agent 状态视图，重点读取 `agent_summary.state`、`agent_summary.next_command`、`datasets.counts`、`setup`、`visibility` 和 `readiness`。
 
-### 4.1 Workspace 映射
+### 4.1 平台持久化映射
 
-这些是平台侧结果位置，仅用于调试和排障。Agent 不应绕过 CLI 直接修改。
+当前 JS 后端把运行时状态持久化到 PostgreSQL。以下映射仅用于调试和排障，Agent 不应绕过 CLI 直接修改。
 
-| CLI 操作 | 平台 workspace 结果 |
+| CLI 操作 | PostgreSQL / 运行时结果 |
 | --- | --- |
-| `dataset upload` | 保存一份原始 A/B JSONL，并更新 `workspace/uploads/_meta.json` |
-| `task create-gsb` | 创建任务、绑定数据快照、写入分配策略和 visibility，并运行 preflight |
-| `task create` | `workspace/tasks/<task-id>/` + 任务注册表 |
-| `task bind` | `workspace/tasks/<task-id>/input.jsonl` 和版本映射；运行时直接读取 |
-| `task setup` | `workspace/tasks/<task-id>/_config.json` |
-| `task configure` | 更新 `workspace/tasks/<task-id>/_config.json` 中的分配策略和 visibility |
-| `task renderer upload` | `workspace/tasks/<task-id>/renderer.js` |
-| `results export` | `workspace/tasks/<task-id>/exports/` |
-| `report upload` | `workspace/tasks/<task-id>/report/` |
-| 评估者提交 | `workspace/tasks/<task-id>/rating_result/eval_<user>.json` |
+| `dataset upload` | 写入 dataset 与 dataset-file 表，返回稳定 dataset ID |
+| `task create-gsb` | 创建 task、固化 task items、保存分配策略和 visibility，并运行 preflight |
+| `task create` | 创建 task 记录；不创建服务器 JSON task 目录 |
+| `task bind` | 固化 dataset 内容到 task items，并保存 dataset/版本映射 |
+| `task setup/configure` | 更新 task 配置 JSONB、分配题目和 visibility |
+| `task renderer upload` | 写入 task renderer 表 |
+| `results export` | 从数据库即时生成导出文件并记录审计事件 |
+| `report upload` | 写入 task report 表；`report status` 返回 `source: "database"` |
+| 评估者提交 | 写入 evaluation、comment 和 review 相关表 |
 
-报告发现以 task 目录为唯一来源；不要为多个 task 生成 workspace 级聚合页、report index 或 report archive。
+完整 analysis run 仍保存在本地 canonical task 的 `report/runs/`，但线上报告发现以 PostgreSQL task report 记录为唯一来源；不要创建 workspace 级聚合页、report index 或 report archive。
 同一业务评估也不得按 `aidp` / `chatbuy-eval` 建两个 task；平台差异只记录为同一 task 的执行元数据。
 
 #### 发布前检查
@@ -282,6 +295,17 @@ gsb-cli results export <task-id> --format zip --output ./exports --json
 
 ### 7. 报告管理
 
+生成分析文件（在 platform repository 根目录执行）：
+
+```bash
+python3 scripts/build_gsb_decision_report.py \
+  --task <task-id> \
+  --config <analysis-config.json> \
+  --no-publish
+```
+
+入口创建不可覆盖的 `report/runs/<analysis-run-id>/`，并在 JSON 输出中返回 `report` 和 `summary` 路径；生成阶段不更新 task `report/` 根目录。
+
 ```bash
 # 查看报告状态
 gsb-cli report status <task-id> --json
@@ -289,8 +313,8 @@ gsb-cli report status <task-id> --json
 # 获取报告 URL
 gsb-cli report url <task-id> --json
 
-# 上传报告（必须成对传入 .html 和 .json）
-gsb-cli report upload <task-id> ./decision_report.html ./decision_summary.json --json
+# 用户确认后归档（使用生成命令返回的路径）
+gsb-cli report upload <task-id> <report-path> <summary-path> --json
 
 # 下载报告
 gsb-cli report download <task-id> --type html --output ./report.html --json
@@ -322,11 +346,13 @@ gsb-cli task publish <task-id> --json
 # 5. 等待评估完成后回收结果
 gsb-cli results export <task-id> --format json --output ./exports --json
 
-# 6. 分析并生成报告（使用 analysis.md 方法论）
-# → 生成 decision_report.html + decision_summary.json
+# 6. 生成不可覆盖的分析 run
+python3 scripts/build_gsb_decision_report.py --task <task-id> --config <analysis-config.json> --no-publish
+# → 从 JSON 输出读取 report 和 summary 路径
 
-# 7. 归档报告
-gsb-cli report upload <task-id> ./decision_report.html ./decision_summary.json --json
+# 7. 确认后归档报告
+gsb-cli report upload <task-id> <report-path> <summary-path> --json
+gsb-cli report status <task-id> --json
 ```
 
 ---

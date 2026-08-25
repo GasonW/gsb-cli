@@ -43,7 +43,7 @@ Commands:
   dataset list
   dataset guide
 
-  task create --name <name> --purpose <purpose> --mode gsb
+  task create --name <name> --purpose <purpose> --mode gsb|review
   task get <task-id>
   task create-gsb --name <name> --input <jsonl-dataset> --description-file ./description.md --publish
   task configure <task-id> --min-per-person auto --require-comments false --show-trace false
@@ -59,7 +59,7 @@ Commands:
 
   report status <task-id>
   report url <task-id>
-  report upload <task-id> ./decision_report.html ./decision_summary.json
+  report upload <task-id> ./decision_report.html ./decision_summary.json  # v2 preflight + archive
   report download <task-id> --type html --output ./report.html
 
   results summary <task-id> --all

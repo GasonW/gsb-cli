@@ -16,11 +16,15 @@ export class ApiError extends Error {
 export class ApiClient {
   readonly baseUrl: string;
   sessionToken: string;
+  csrfToken: string;
+  webDid: string;
   readonly timeoutMs: number;
 
   constructor(options: ApiClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.sessionToken = options.sessionToken || "";
+    this.csrfToken = options.csrfToken || "";
+    this.webDid = options.webDid || "";
     this.timeoutMs = options.timeoutMs ?? 60_000;
   }
 
@@ -43,45 +47,52 @@ export class ApiClient {
     options: { expectBytes?: boolean } = {},
   ): Promise<T | { bytes: Buffer; headers: Headers }> {
     const url = this.url(path);
-    const headers: Record<string, string> = {};
     let body: string | undefined;
     if (data !== undefined) {
       body = JSON.stringify(data);
-      headers["content-type"] = "application/json";
-    }
-    if (this.sessionToken) {
-      headers.cookie = `session_token=${this.sessionToken}`;
     }
 
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: method.toUpperCase(),
-        headers,
-        body,
-        signal: AbortSignal.timeout(this.timeoutMs),
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new ApiError(0, { error: message }, url);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const headers = this.requestHeaders(body !== undefined);
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: method.toUpperCase(),
+          headers,
+          body,
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new ApiError(0, { error: message }, url);
+      }
+
+      this.captureCookies(response.headers);
+      if (response.ok) {
+        if (options.expectBytes) {
+          return { bytes: Buffer.from(await response.arrayBuffer()), headers: response.headers };
+        }
+        return (await decodeResponse(response)) as T;
+      }
+
+      const decoded = await decodeResponse(response);
+      if (attempt === 0 && isCsrfFailure(response.status, decoded)) {
+        await this.bootstrapCsrf(true);
+        continue;
+      }
+      throw new ApiError(response.status, decoded, url);
     }
 
-    this.captureCookie(response.headers);
-    if (!response.ok) {
-      throw new ApiError(response.status, await decodeResponse(response), url);
-    }
-
-    if (options.expectBytes) {
-      return { bytes: Buffer.from(await response.arrayBuffer()), headers: response.headers };
-    }
-    return (await decodeResponse(response)) as T;
+    throw new ApiError(0, { error: "request retry exhausted" }, url);
   }
 
   async login(username: string, password: string): Promise<JsonObject> {
+    await this.bootstrapCsrf(false);
     return this.request<JsonObject>("POST", "/api/auth/login", { username, password });
   }
 
   async register(username: string, password: string): Promise<JsonObject> {
+    await this.bootstrapCsrf(false);
     return this.request<JsonObject>("POST", "/api/auth/register", { username, password });
   }
 
@@ -92,7 +103,50 @@ export class ApiClient {
     return `${this.baseUrl}/${path.replace(/^\/+/, "")}`;
   }
 
-  private captureCookie(headers: Headers): void {
+  private requestHeaders(hasJsonBody: boolean): Record<string, string> {
+    const headers: Record<string, string> = { accept: "application/json" };
+    if (hasJsonBody) {
+      headers["content-type"] = "application/json";
+    }
+    if (this.csrfToken) {
+      headers["x-suda-csrf-token"] = this.csrfToken;
+    }
+    const cookies = [
+      ...(this.csrfToken ? [`suda-csrf-token=${this.csrfToken}`] : []),
+      ...(this.webDid ? [`suda_web_did=${this.webDid}`] : []),
+      ...(this.sessionToken ? [`session_token=${this.sessionToken}`] : []),
+    ];
+    if (cookies.length) {
+      headers.cookie = cookies.join("; ");
+    }
+    return headers;
+  }
+
+  private async bootstrapCsrf(required: boolean): Promise<void> {
+    const url = this.url("/login");
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: { accept: "text/html" },
+        redirect: "manual",
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (error) {
+      if (!required) return;
+      const message = error instanceof Error ? error.message : String(error);
+      throw new ApiError(0, { error: `cannot initialize CSRF protection: ${message}` }, url);
+    }
+    if (!response.ok) {
+      if (!required) return;
+      throw new ApiError(response.status, { error: "cannot initialize CSRF protection" }, url);
+    }
+    this.captureCookies(response.headers);
+    if (!this.csrfToken && required) {
+      throw new ApiError(response.status, { error: "application did not return a CSRF token" }, url);
+    }
+  }
+
+  private captureCookies(headers: Headers): void {
     const headerList: string[] = [];
     const getSetCookie = (headers as unknown as { getSetCookie?: () => string[] }).getSetCookie;
     if (typeof getSetCookie === "function") {
@@ -102,13 +156,23 @@ export class ApiClient {
     if (single) {
       headerList.push(single);
     }
-    for (const header of headerList) {
-      const match = /(?:^|;\s*)session_token=([^;]+)/.exec(header);
-      if (match?.[1]) {
-        this.sessionToken = match[1];
-      }
-    }
+    this.sessionToken = cookieValue(headerList, "session_token") || this.sessionToken;
+    this.csrfToken = cookieValue(headerList, "suda-csrf-token") || this.csrfToken;
+    this.webDid = cookieValue(headerList, "suda_web_did") || this.webDid;
   }
+}
+
+function cookieValue(headers: string[], name: string): string {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const header of headers) {
+    const match = new RegExp(`(?:^|[,;]\\s*)${escapedName}=([^;,\\s]+)`, "u").exec(header);
+    if (match?.[1]) return match[1];
+  }
+  return "";
+}
+
+function isCsrfFailure(status: number, data: unknown): boolean {
+  return status === 403 && serverError(data).toLowerCase().includes("csrf");
 }
 
 export function serverError(data: unknown): string {

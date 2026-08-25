@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "decision-summary-v2.schema.json",
+  "title": "GSB Decision Summary v2",
+  "type": "object",
+  "required": ["schema_version", "protocol_version", "source_analysis_run_id", "task", "decision", "scores", "quality", "review_queue"],
+  "properties": {
+    "schema_version": {"const": "gsb-decision-summary/v2"},
+    "protocol_version": {"const": "gsb-decision-v2"},
+    "source_analysis_run_id": {"type": "string", "minLength": 1},
+    "task": {"type": "object", "required": ["id", "candidate", "baseline", "raw_input_question_n", "evaluated_question_n", "main_analysis_question_n"]},
+    "decision": {
+      "type": "object",
+      "required": ["status", "reason", "confidence", "data_confidence", "data_confidence_components", "statistical_significance"],
+      "properties": {
+        "confidence": {"description": "Backward-compatible alias of data_confidence"},
+        "data_confidence": {"enum": ["高", "中", "低", "分析无效"]},
+        "data_confidence_components": {"type": "object", "required": ["data_validity", "robustness", "evidence_completeness"]},
+        "statistical_significance": {"enum": ["显著", "未显著"]}
+      }
+    },
+    "scores": {"type": "object", "required": ["pointwise", "pairwise"]},
+    "quality": {"type": "object"},
+    "review_queue": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": true
+}

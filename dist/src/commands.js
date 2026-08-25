@@ -124,6 +124,7 @@ async function cmdDoctor(globals) {
     const client = await buildClient(globals, { autoLogin: false });
     try {
         const user = await client.request("GET", "/api/auth/me");
+        persistClientSession(globals, client, user);
         return {
             payload: {
                 ok: true,
@@ -132,6 +133,7 @@ async function cmdDoctor(globals) {
                 base_url: client.baseUrl,
                 reachable: true,
                 auth: "valid",
+                auth_protocol: client.csrfToken ? "suda-double-submit-csrf" : "legacy-session-cookie",
                 user,
             },
             exitCode: 0,
@@ -147,6 +149,7 @@ async function cmdDoctor(globals) {
                     base_url: client.baseUrl,
                     reachable: true,
                     auth: "required",
+                    auth_protocol: client.csrfToken ? "suda-double-submit-csrf" : "legacy-session-cookie",
                 },
                 exitCode: 0,
             };
@@ -271,6 +274,8 @@ async function cmdAuthLogin(globals) {
             username: String(data.username || username),
             role: String(data.role || ""),
             session_token: client.sessionToken,
+            csrf_token: client.csrfToken,
+            web_did: client.webDid,
         });
         const payload = {
             ok: true,
@@ -280,6 +285,7 @@ async function cmdAuthLogin(globals) {
             username: data.username,
             role: data.role,
             force_change_pw: Boolean(data.force_change_pw),
+            auth_protocol: client.csrfToken ? "suda-double-submit-csrf" : "legacy-session-cookie",
             next_commands: [
                 "gsb-cli dataset list",
                 "gsb-cli task create --name <task-name> --purpose <task-purpose>",
@@ -318,6 +324,8 @@ async function cmdAuthRegister(globals) {
             username: String(data.username || username),
             role: String(data.role || ""),
             session_token: client.sessionToken,
+            csrf_token: client.csrfToken,
+            web_did: client.webDid,
         });
         return {
             payload: {
@@ -352,7 +360,17 @@ async function cmdAuthWhoami(globals) {
     const client = await buildClient(globals);
     try {
         const data = await client.request("GET", "/api/auth/me");
-        return { payload: { ok: true, message: "当前 session 可用", base_url: client.baseUrl, user: data }, exitCode: 0 };
+        persistClientSession(globals, client, data);
+        return {
+            payload: {
+                ok: true,
+                message: "当前 session 可用",
+                base_url: client.baseUrl,
+                auth_protocol: client.csrfToken ? "suda-double-submit-csrf" : "legacy-session-cookie",
+                user: data,
+            },
+            exitCode: 0,
+        };
     }
     catch (error) {
         if (error instanceof ApiError) {
@@ -544,8 +562,8 @@ async function cmdTaskCreate(globals, args) {
     if (!name.trim()) {
         throw new CliUsageError("task create requires --name");
     }
-    if (!["gsb", "preview"].includes(mode)) {
-        throw new CliUsageError("--mode must be gsb or preview");
+    if (!["gsb", "review", "preview"].includes(mode)) {
+        throw new CliUsageError("--mode must be gsb, review, or preview");
     }
     const client = await buildClient(globals);
     try {
@@ -560,7 +578,13 @@ async function cmdTaskCreate(globals, args) {
                     manage: `${client.baseUrl}/tasks/${task.id}/manage/`,
                     evaluate: `${client.baseUrl}/tasks/${task.id}/`,
                 },
-                next_commands: [
+                next_steps: mode === "review" ? [
+                    "Open urls.manage and upload one A/B/C Review JSONL; CLI dataset upload/bind currently validates the A/B AIDP contract only.",
+                    "Review evaluators score each A/B/C response on 0/1/2/3 and may add a per-response global comment; no GSB verdict is collected.",
+                ] : [],
+                next_commands: mode === "review" ? [
+                    `gsb-cli task preflight ${task.id} --json`,
+                ] : [
                     `gsb-cli task bind ${task.id} --input <jsonl-dataset>`,
                     `gsb-cli task setup ${task.id} --min-per-person 0`,
                 ],
@@ -1131,6 +1155,38 @@ async function cmdReportUpload(globals, args) {
         }
         fileMap[fileName] = readFileSync(path, "utf8");
     }
+    const v2SummaryText = fileMap["decision_summary.json"];
+    if (v2SummaryText) {
+        let summary = null;
+        try {
+            const parsed = JSON.parse(v2SummaryText);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+                summary = parsed;
+        }
+        catch {
+            throw new CliUsageError("decision_summary.json must contain valid JSON");
+        }
+        if (summary?.protocol_version === "gsb-decision-v2") {
+            const names = Object.keys(fileMap).sort();
+            if (names.length !== 2 || names[0] !== "decision_report.html" || names[1] !== "decision_summary.json") {
+                throw new CliUsageError("gsb-decision-v2 upload requires exactly decision_report.html and decision_summary.json");
+            }
+            if (typeof summary.source_analysis_run_id !== "string" || !summary.source_analysis_run_id.trim()) {
+                throw new CliUsageError("gsb-decision-v2 summary requires source_analysis_run_id");
+            }
+            const html = fileMap["decision_report.html"];
+            if (!html)
+                throw new CliUsageError("gsb-decision-v2 upload requires decision_report.html");
+            const reviewLinks = [...html.matchAll(/href=["']([^"']*review\/\?q=[^"']*)["']/g)].map((match) => match[1]);
+            if (reviewLinks.some((link) => !link.startsWith("../review/?q="))) {
+                throw new CliUsageError("gsb-decision-v2 review links must use ../review/?q=<query-id>");
+            }
+            const artifactLinks = [...html.matchAll(/data-web-href=["']([^"']*artifacts\/download\?path=[^"']*)["']/g)].map((match) => match[1]);
+            if (artifactLinks.some((link) => !link.startsWith("../artifacts/download?path="))) {
+                throw new CliUsageError("gsb-decision-v2 artifact links must use ../artifacts/download?path=<allowlisted-path>");
+            }
+        }
+    }
     const client = await buildClient(globals);
     try {
         const data = await client.request("POST", `/tasks/${encodeURIComponent(taskId)}/api/reports`, { files: fileMap });
@@ -1389,6 +1445,8 @@ async function buildClient(globals, options = {}) {
     const client = new ApiClient({
         baseUrl,
         sessionToken: globals.env.GSB_SESSION_TOKEN || saved.session_token || "",
+        csrfToken: saved.csrf_token || "",
+        webDid: saved.web_did || "",
     });
     const username = globals.username || globals.env.GSB_USERNAME;
     const password = globals.password || globals.env.GSB_PASSWORD;
@@ -1399,12 +1457,29 @@ async function buildClient(globals, options = {}) {
             username: String(data.username || username),
             role: String(data.role || ""),
             session_token: client.sessionToken,
+            csrf_token: client.csrfToken,
+            web_did: client.webDid,
         });
     }
     return client;
 }
 function resolveBaseUrl(globals, saved = {}) {
     return (globals.baseUrl || saved.base_url || globals.env.GSB_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
+}
+function persistClientSession(globals, client, user = {}) {
+    if (!client.sessionToken)
+        return;
+    const path = sessionPath(globals.env);
+    const saved = loadSessions(path)[globals.profile] || {};
+    saveSession(path, globals.profile, {
+        ...saved,
+        base_url: client.baseUrl,
+        username: String(user.username || saved.username || ""),
+        role: String(user.role || saved.role || ""),
+        session_token: client.sessionToken,
+        csrf_token: client.csrfToken,
+        web_did: client.webDid,
+    });
 }
 function datasetUploadFailurePayload(error, globals) {
     const detail = error.data && typeof error.data === "object" ? error.data : {};

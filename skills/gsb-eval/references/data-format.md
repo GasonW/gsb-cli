@@ -1,5 +1,11 @@
 # GSB 统一 JSONL 输入
 
+## 决策分析评次字段
+
+`gsb-decision-v2` 的每个评次至少需要：稳定 Query ID、评估者、角色（worker/qc/adjudicator）、L/R 真实模型、两个模型的 Pointwise `0/1/2/3`、Pairwise Overall 与五维五档、状态和结果 lineage。不同题可以有不同 Worker 数。
+
+归一化后 Pointwise 按真实模型保存，Pairwise winner 可以直接保存真实模型名；L/R 仍需保留用于身份和位置偏好审计。复制或继承的 workflow final 必须标为 derived，不能增加票数。完整处理口径见 `analysis.md`。
+
 ## 标准格式
 
 AIDP 与 ChatBuy Eval 共用一个 JSONL。每个非空行是一个 JSON object，并完整包含同一道题的 A/B 数据：
@@ -25,7 +31,7 @@ gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
 gsb-cli task bind <task-id> --input <jsonl-dataset-id> --json
 ```
 
-平台把文件保存为 task 根目录唯一的 `input.jsonl`，评估运行时直接读取。不要按平台复制 task，
+本地 canonical task 只保存一份 `input.jsonl`；线上 JS 后端把每行固化为同一 task 的 PostgreSQL item 快照。不要按平台复制 task，
 也不要创建 `aidp/`、`input/`、`data_a/`、`data_b/` 适配目录。
 
 旧的 `--a <dir-a> --b <dir-b>` 命令只用于读取未迁移历史任务，不用于创建新任务。
