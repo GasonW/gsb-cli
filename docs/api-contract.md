@@ -79,6 +79,10 @@ and export Review tasks. CLI `dataset upload` / `task bind --input` remain A/B A
 three-model Review JSONL from `urls.manage` until a dedicated CLI Review uploader is added.
 Review evaluator results use complete `quality_scores` (`A/B/C`, each `0|1|2|3`) and optional
 `global_comments` (`A/B/C` strings). They intentionally leave GSB winner, magnitude, and dimensions empty.
+An optional `reviewPriority` object marks highlighted cases. It requires `isPriority: true` and a non-empty
+`comparisons` array whose entries contain `track`, `candidate`, `baseline`, `candidateScore`,
+`baselineScore`, and `overall`. The platform exposes it as `review_priority` in query-list metadata and
+preserves it under each rubric's `meta.review_priority`; it is display-only and does not affect scores.
 
 `GET /api/tasks/{task_id}/status` returns the Agent-facing task state. It should not expose raw task registry `config` internals. The stable top-level fields are:
 

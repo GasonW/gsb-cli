@@ -39,6 +39,7 @@ npm 安装 `gsb-cli` 时会在 `postinstall` 阶段自动安装。环境变量 `
 - 用户要"创建/发布 GSB 任务"：走任务工作流。
 - 用户要"三模型 Review"：用 `task create --mode review` 创建；从返回的 `urls.manage` 上传 A/B/C Review JSONL，再执行 preflight/publish。当前 CLI dataset/bind 仍只支持 A/B AIDP 输入，不要误称已支持 Review 文件上传。
 - 三模型 Review 对每组 response 记录 `0/1/2/3` 绝对质量分和可选全局评论；不要要求或推断 GSB 胜负。
+- 需要高亮重点 case 时，在 Review JSONL 行中使用 `reviewPriority.isPriority=true` 和非空 `comparisons`；这些历史评分只用于目录/证据提示，不当作当前 Review 结果。
 - 用户给了符合 AIDP contract 的 JSONL：直接检查并上传；CSV/XLSX 或其他 JSONL 才需要先转换。
 - 用户要"分析结果/生成报告"：先回收结果，完整读取[分析协议](references/analysis.md)和[决策报告模板](references/decision-report.md)，生成分析文件；用户确认或任务要求归档时，再单独上传。
 - 用户要"为什么赢/输、根因、bad case/good case、标注噪声、Regression"：生成统计 run 后，必须完整读取并执行[语义分析协议](references/semantic-analysis.md)，通过结构化审核产物生成语义结论；不得凭评分、评论关键词或 Agent 直觉直接写原因。

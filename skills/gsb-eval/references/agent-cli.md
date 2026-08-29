@@ -216,6 +216,10 @@ gsb-cli task config <task-id> \
 
 `task get <task-id> --json` 返回 Agent 状态视图，重点读取 `agent_summary.state`、`agent_summary.next_command`、`datasets.counts`、`setup`、`visibility` 和 `readiness`。
 
+三模型 Review 的 `datasets.versions` 和 `datasets.counts` 同时包含 `a/b/c`。
+可选 `reviewPriority` 只在评估页作为重点 case 高亮与证据提示，不会影响
+`task get` 的题数或评分结果。
+
 ### 4.1 平台持久化映射
 
 当前 JS 后端把运行时状态持久化到 PostgreSQL。以下映射仅用于调试和排障，Agent 不应绕过 CLI 直接修改。

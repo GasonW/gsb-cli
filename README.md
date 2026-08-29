@@ -251,6 +251,9 @@ gsb-cli task configure <task-id> \
 `task preflight`、`task publish` 和结果导出。Review 的 A/B/C JSONL 当前需在命令返回的
 `urls.manage` 页面上传；`dataset upload` 与 `task bind --input` 仍只校验 A/B AIDP 契约。
 评估页对 A/B/C 三组 response 分别记录 `0/1/2/3` 绝对质量分和可选全局评论，不采集 GSB 胜负。
+Review JSONL 可用 `reviewPriority` 标记重点 case：必须设置 `isPriority=true`，并在
+`comparisons` 中提供 `track/candidate/baseline/candidateScore/baselineScore/overall`；
+该字段只控制目录高亮和证据横幅，不改变本次 Review 分数。
 
 导出结果：
 

@@ -440,6 +440,49 @@ test("task get returns agent-facing task status without raw internal config", as
   }
 });
 
+test("task get preserves three-model Review versions and counts", async () => {
+  const server = createServer(async (req, res) => {
+    await readJson(req);
+    if (req.method === "GET" && req.url === "/api/tasks/triple_review/status") {
+      return sendJson(res, {
+        ok: true,
+        task: { id: "triple_review", name: "A/B/C Review", status: "active", mode: "review", owner: "pm" },
+        agent_summary: { state: "published", can_publish: false },
+        datasets: {
+          mode: "review",
+          versions: { a: "P20613", b: "P20725", c: "P30725" },
+          counts: { a: 50, b: 50, c: 50, common: 50 },
+        },
+        setup: { complete: true, total_items: 50, min_per_person: 50, anchor_count: 0 },
+        visibility: { transparent_mode: "admin_only", stats: "admin_only", show_trace: false, require_comments: false },
+        readiness: { ok: true, failures: [], warnings: [] },
+        report: { exists: false },
+      });
+    }
+    return sendJson(res, { error: "not found" }, 404);
+  });
+  await listen(server);
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const result = await runCli([
+      "task", "get", "triple_review", "--base-url", baseUrl, "--json",
+    ], {
+      env: { ...process.env, GSB_CLI_SESSION: join(tmpdir(), "unused-gsb-session.json") },
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(result.payload.datasets, {
+      mode: "review",
+      versions: { a: "P20613", b: "P20725", c: "P30725" },
+      counts: { a: 50, b: 50, c: 50, common: 50 },
+    });
+  } finally {
+    await close(server);
+  }
+});
+
 test("task setup explains generated assignment and points to task config", async () => {
   const server = createServer(async (req, res) => {
     await readJson(req);
