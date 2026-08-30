@@ -9,19 +9,24 @@
 
 ```text
 结构校验 → L/R 到真实模型 → Worker/QC 校准 → Worker 权重处理
-→ 评次级跨指标冲突 → Query 有效 Worker 检查 → 题内聚合
+→ 评次级跨指标冲突 → Query 有效 Worker 检查 → 题内聚合/QC 终判
+→ 题目 Review 覆盖 → 评论采纳过滤
 → 主分析 + 原始/处理后敏感性 → 下钻与 Case 证据
 ```
 
 ## 多 Worker 与 QC
 
 - 支持每题 1～N Worker，人数可不等。
-- 独立 adjudication 优先于独立 QC；无独立终判时使用 Worker 加权聚合。
+- 题目 Reviewer 的逐项终判优先于独立 adjudication/QC；无 Reviewer 终判的评分项再使用独立 adjudication、独立 QC 或 Worker 加权聚合。
 - Worker 状态为保留 `1.0`、降权 `0.5`、剔除 `0`、未校准 `1.0`。
 - QC 重叠不足只标“未校准”。剔除须同时有 QC 低一致与独立异常信号，并由人工在 config 确认。
 - QC/终判的复制值是 derived lineage，不增加票数。
 
 ## 聚合
+
+每个 Pointwise 模型分和每个 Pairwise 维度独立解析最终来源，固定优先级为 Reviewer > 独立 adjudication/QC > 有效 Worker 加权平均。题目 Review 可以只覆盖部分评分项，其他项继续走后备来源。
+
+完成题目 Review 后，作业评论只有明确 `accepted` 才进入分析；`rejected` 与未处理评论均不进入。尚未完成 Review 的历史题目只排除明确 `rejected` 评论。Reviewer 为终判分填写的 `rationale` 作为独立 reviewer evidence 进入后续分析。
 
 Pointwise 对每个模型分别计算 `sum(weight*score)/sum(weight)`，保留小数。Pairwise 先统一编码为 Candidate `+2/+1`、Same `0`、Baseline `-1/-2`，再同样加权。连续值用于统计；五档用于展示：`≥1.5` 显著好、`(0,1.5)` 略好、`0` Same、`(-1.5,0)` Baseline 略好、`≤-1.5` Baseline 显著好。
 
@@ -48,7 +53,7 @@ Worker 彼此意见不同不是脏数据。无 QC 且清洗后有效 Worker 少�
 ## 字段语义与证据边界
 
 - 规范化后的 `winner` 已是实际模型名或 `similar`，不得再次按 left/right 映射。
-- `magnitude` 表示显著好、略好或相似；`quality_rating` 表示绝对质量。`similar + below` 表示两版共同低质，不代表后一模型胜出。
+- `magnitude` 表示显著好、略好或相似。新 ChatBuy Eval 结果的绝对质量读取 `single_report_quality[真实模型名]`，评分原因读取 `single_report_comments[真实模型名]`；`quality_rating` 仅用于历史结果兼容。Pairwise 主结论读取 Overall，评论中的维度标签是原因归类，不是独立 GSB 票。
 - 主结论按题目聚合；多名标注人员是同一题的证据，不得拆成多道题增加权重。
 - 版本级评论读取 `comments[模型名].items`、`pros` 和 `cons`；划线或卡片评论读取 `anchored_comments`，分析划线定位时过滤 `target_type=global` 的同源全局评论。
 - 回答长度、标题数、表格、商品卡数量等结构指标只能解释回答形态，不能单独证明质量好坏。

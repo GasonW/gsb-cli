@@ -24,6 +24,8 @@ The platform repository owns the HTTP API. This CLI depends on the following sta
 - `GET /tasks/{task_id}/api/reports`
 - `POST /tasks/{task_id}/api/reports`
 - `GET /tasks/{task_id}/report/{file_name}`
+- `GET /tasks/{task_id}/api/review-data`
+- `POST /tasks/{task_id}/api/review-annotations`
 - `GET /tasks/{task_id}/api/summary`
 - `POST /tasks/{task_id}/api/export`
 
@@ -100,14 +102,32 @@ preserves it under each rubric's `meta.review_priority`; it is display-only and 
 - `files` object, required. Keys are report file names and values are text content.
 - Accepted file suffixes are `.html` and `.json`; JSON files must contain valid JSON text.
 - Reports are stored in PostgreSQL `legacy_reports` and discovered by task ID. `report status` returns `report_dir: "database://legacy_reports"` and `source: "database"`; callers must not infer a server filesystem path.
-- For `gsb-decision-v2`, the CLI uploads exactly `decision_report.html` and `decision_summary.json`, requires `source_analysis_run_id`, and rejects review links that are not task-relative `../review/?q=<query-id>`. Immutable run artifacts remain local under `report/runs/<analysis-run-id>/` and are not part of this HTTP payload.
+- A newly generated `gsb-decision-v2` bundle contains exactly `review_report.html`, `decision_report.html`, `cqc_report.html`, and `decision_summary.json`. The CLI requires the complete four-file bundle when the algorithm report links the Review/CQC stages, requires `source_analysis_run_id`, and rejects task-review links that are not relative `../review/?q=<query-id>`. Legacy two-file v2 bundles remain backward-compatible.
 - The v2 HTML is an evaluation-analysis surface, not a launch-decision surface: it uses real model version names; separates question scope from annotation-record processing; reports question-level Pointwise mean/zero/`>=2` rates; reports G/S/B plus both win rates excluding Same; and translates 95% intervals into a significance/stability statement. Raw rating-record distributions, protocol, run id, checksum, and launch recommendations are not reader-visible HTML fields; they may remain in the JSON/audit lineage.
 - Report attachment links use `GET /tasks/<task-id>/artifacts/download?path=<workspace-relative-path>`. The endpoint requires the same task/statistics permission as the report and only accepts files resolved from the task source reference, model-run manifests, benchmark manifests, or task raw-result directories. It returns `Content-Disposition: attachment`; arbitrary workspace paths return 404.
 - Report status keeps `aggregate_dir`, `html_sources`, and `json_sources` as empty compatibility fields.
 
+The two-stage report workflow reuses the task-admin review surface:
+
+- `GET /tasks/{task_id}/api/review-data` returns one record per evaluator and question. Correction-capable records include `pointwise_scores_by_model`, `pairwise_dimension_ids`, persisted `pointwise_corrections` and `pairwise_corrections`, reviewer, and timestamps.
+- The same response contains `query_reviews`, the canonical query-level Review layer. Each item contains `pointwise_reviews`, `pairwise_reviews`, `comment_decisions`, `review_status`, reviewer, and timestamps.
+- `POST /tasks/{task_id}/api/review-query` stores the query-level final scores and comment decisions. Final Pointwise and Overall GSB overrides require reviewer `rationale`; dimension-level GSB is compatibility-only and is not exposed by the canonical UI. `reason_code`, `worker_feedback`, and `comment_refs` remain optional compatibility fields. Comment decisions are `accepted`, `corrected`, or `rejected`; corrected and rejected comments require a rationale. The canonical UI uses one save action and writes `review_status: completed`.
+- Final-score precedence is query reviewer > independent adjudication/QC > retained-worker weighted aggregation. Unchanged scores keep the fallback result. In a completed query Review, omitted comment decisions default to accepted; corrected comments remain in downstream analysis and their rationale enters CQC feedback; rejected comments are excluded. Reviewer score rationales enter as reviewer evidence.
+- `POST /tasks/{task_id}/api/review-annotations` accepts one or more `{ evaluator, query_id }` items plus either correction map. Every changed score is an independent correction item and requires `reason_code` (`wrong_judgment`, `missed_issue`, `criteria_misunderstanding`, or `other`), non-empty reviewer `rationale`, non-empty `worker_feedback`, and optional `comment_refs` pointing to the evaluator's original comments.
+- Pointwise corrections are keyed by immutable raw model id and use integer `original_score` / `corrected_score` in `0|1|2|3`. Pairwise corrections are keyed by `overall` or an existing GSB dimension, use integer scores in `-2|-1|0|1|2`, and carry the immutable `candidate_model_id` / `baseline_model_id` context.
+- The server rejects stale corrections whose `original_score` no longer matches the immutable evaluation record. An empty correction object clears the effective override but does not mutate the original result file.
+- Only platform admins, task owners, and task sub-admins can read or write this Review surface. Report viewers without task-admin permission remain read-only.
+- Canonical report generation applies the query Review layer after QC/worker fallback resolution and before final query statistics, bootstrap, and summary rendering. Evaluator cards and worker-quality calculations retain original scores; legacy evaluator-level corrections remain readable for backward compatibility but are not applied by canonical report generation.
+
 `POST /tasks/{task_id}/api/export` JSON results include evaluator records with:
 
+- `evaluation_schema: "evidence-v1"` for new evidence-first ChatBuy Eval submissions. Legacy clients without this marker remain readable under the previous contract.
+- `single_report_quality` keyed by the two actual model names, each with an integer `0|1|2|3` score.
+- `single_report_comments` keyed by the same actual model names. New ChatBuy Eval submissions require a non-empty reason for each score.
+- `dimension_results.shopping_guidance_quality` as the only Pairwise GSB field for new ChatBuy Eval submissions. Historical per-dimension GSB and answer-dimension fields remain readable.
 - `comments` object keyed by actual version name plus `general`.
+- `comments.general` is the required natural-language explanation for the Overall GSB selection in new ChatBuy Eval submissions.
+- `comment_mentions` preserves dimension-tag and anchored-comment references for `single_report` reasons and the `comparison` reason.
 - `comments[version].items` as the canonical version-level global comment list. Each item may contain `id`, `side`, `version_key`, `version`, `target_type: "global"`, `comment`, `feedback_type`, `images`, and timestamps.
 - `comments[version].pros` and `comments[version].cons` as compatibility text derived from positive and negative global comments.
 - `anchored_comments` as the shared comment item list for text selections, cards, blocks, and global comments. Consumers that need only locatable highlights should ignore entries with `target_type: "global"`.

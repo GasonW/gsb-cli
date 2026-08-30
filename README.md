@@ -262,7 +262,9 @@ gsb-cli results summary <task-id> --all --json
 gsb-cli results export <task-id> --format json --output ./exports --json
 ```
 
-结果中的评论按实际版本名组织。版本级全局评论位于 `comments[版本名].items`，每项包含 `feedback_type`、`comment`、`images` 等字段；`comments[版本名].pros` 和 `cons` 保留为按方向拼接的兼容文本。划线、卡片和全局评论共享 `anchored_comments` 存储，读取划线定位时应排除 `target_type: "global"` 的项。
+新 ChatBuy Eval 结果把两个模型的 0–3 分保存在 `single_report_quality[实际版本名]`，对应必填原因保存在 `single_report_comments[实际版本名]`；Pairwise 只新增 Overall GSB，必填对比原因位于 `comments.general`。评论框按光标位置内联插入的维度标签和划线评论引用保存在 `comment_mentions`，可定位原文的划线证据仍保存在 `anchored_comments`。历史分维度 GSB、回答维度评分、可用性评分和 `quality_rating` 仅作兼容读取。
+
+历史版本级全局评论仍位于 `comments[版本名].items`，每项包含 `feedback_type`、`comment`、`images` 等字段；`comments[版本名].pros` 和 `cons` 保留为按方向拼接的兼容文本。划线、卡片和全局评论共享 `anchored_comments` 存储，读取划线定位时应排除 `target_type: "global"` 的项。
 
 分析生成和归档是两个独立步骤。在平台仓库根目录先生成不可覆盖的 analysis run：
 
@@ -270,16 +272,21 @@ gsb-cli results export <task-id> --format json --output ./exports --json
 python3 scripts/build_gsb_decision_report.py --task <task-id> --config <analysis-config.json> --no-publish
 ```
 
-从命令 JSON 输出读取 `report` 和 `summary` 路径；确认后再上传归档。也可以查看和下载平台侧已有报告：
+从命令 JSON 输出读取 `review_report`、`report`、`cqc_report` 和 `summary` 路径；确认后再上传归档。也可以查看和下载平台侧已有报告：
 
 ```bash
-gsb-cli report upload <task-id> <report-path> <summary-path> --json
+gsb-cli report upload <task-id> <review-report-path> <report-path> <cqc-report-path> <summary-path> --json
 gsb-cli report status <task-id> --json
 gsb-cli report download <task-id> --type html --output ./decision_report.html --json
+gsb-cli report download <task-id> --type html --file review_report.html --output ./review_report.html --json
+gsb-cli report download <task-id> --type html --file cqc_report.html --output ./cqc_report.html --json
 gsb-cli report download <task-id> --type json --output ./decision_summary.json --json
+gsb-cli report review <task-id> --output ./review-feedback.json --json
 ```
 
-`report upload` 会把本地 `.html` 和 `.json` 文本写入线上任务的 PostgreSQL report 记录。`gsb-decision-v2` 先在本地校验固定文件名、`source_analysis_run_id` 和 `../review/?q=` 相对题目链接。完整分析 run 仍保存在平台仓库的 `report/runs/<analysis-run-id>/`，只把当前确认的 `decision_report.html` 与 `decision_summary.json` 上传到线上。上传需要当前账号有任务管理权限。
+`report upload` 会把本地 `.html` 和 `.json` 文本写入线上任务的 PostgreSQL report 记录。新生成的 `gsb-decision-v2` bundle 固定包含 Review、算法、CQC 三张 HTML 和一份 JSON 摘要；CLI 会校验固定文件名、`source_analysis_run_id` 和 `../review/?q=` 相对题目链接。旧的两文件 v2 bundle 仍可读取与上传，但只要算法报告引用两阶段页面，就必须四件套一起上传。上传需要当前账号有任务管理权限。
+
+Review 报告只保留原模块 4 与筛选器，操作单元是题目。评论可标记采纳、修正或不采纳；未操作评论在保存时默认采纳，修正评论仍进入后续分析且修正说明计入 CQC 反馈，不采纳评论必须写理由且不进入分析。Pointwise 两个模型和 Overall GSB 可给出题目级最终分，改分时“我的原因”为选填；未改分默认认可当前统计来源分。最终统计优先级为“我的终判 > 独立裁决/QC > 有效作业人员加权平均”。可见报告只展示 Overall GSB，不展示分维度 GSB。`report review` 导出题目 Review、评论状态，以及按题目和 Reviewer 的终判量。
 
 `gsb-decision-v2` 的可见报告直接展示真实模型版本、总体 G/S/B 与双方胜率（排除 Same）、题目级 Pointwise 平均分/0 分率/`≥2` 分率，并把差异稳定性与数据可信度分开判断；题目范围与标注记录处理分开说明，原始评分记录分布仅保存在审计产物。报告不展示协议、run id、checksum，也不输出上线建议。
 
@@ -355,10 +362,11 @@ gsb-cli task renderer upload <task-id> ./renderer.js --json
 | 发布任务 | `gsb-cli task publish <task-id>` |
 | 归档任务 | `gsb-cli task archive <task-id>` |
 | 上传 renderer | `gsb-cli task renderer upload <task-id> ./renderer.js` |
-| 上传归档报告 | `gsb-cli report upload <task-id> ./decision_report.html ./decision_summary.json` |
+| 上传归档报告 | `gsb-cli report upload <task-id> ./review_report.html ./decision_report.html ./cqc_report.html ./decision_summary.json` |
 | 查看归档报告 | `gsb-cli report status <task-id>` |
 | 下载 HTML 报告 | `gsb-cli report download <task-id> --type html --output ./decision_report.html` |
 | 下载 JSON 摘要 | `gsb-cli report download <task-id> --type json --output ./decision_summary.json` |
+| 导出 Review 反馈 | `gsb-cli report review <task-id> --output ./review-feedback.json` |
 | 查看汇总 | `gsb-cli results summary <task-id> --all` |
 | 导出结果 | `gsb-cli results export <task-id> --format json --output ./exports` |
 

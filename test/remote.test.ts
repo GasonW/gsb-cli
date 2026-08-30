@@ -685,6 +685,9 @@ test("CLI reads and downloads archived task reports from the remote platform", a
         latest_json: "decision_summary.json",
         url: "/tasks/task_1/report/decision_report.html",
         summary_url: "/tasks/task_1/report/decision_summary.json",
+        review_url: "/tasks/task_1/report/review_report.html",
+        algorithm_url: "/tasks/task_1/report/decision_report.html",
+        cqc_url: "/tasks/task_1/report/cqc_report.html",
         aggregate_dir: "",
         html_files: ["decision_report.html"],
         json_files: ["decision_summary.json"],
@@ -719,6 +722,9 @@ test("CLI reads and downloads archived task reports from the remote platform", a
     assert.deepEqual(status.payload.urls, {
       report: `${baseUrl}/tasks/task_1/report/decision_report.html`,
       summary: `${baseUrl}/tasks/task_1/report/decision_summary.json`,
+      review: `${baseUrl}/tasks/task_1/report/review_report.html`,
+      algorithm: `${baseUrl}/tasks/task_1/report/decision_report.html`,
+      cqc: `${baseUrl}/tasks/task_1/report/cqc_report.html`,
     });
 
     const download = await runCli(["report", "download", "task_1", "--base-url", baseUrl, "--type", "html", "--output", outFile, "--json"], { env });
@@ -729,6 +735,102 @@ test("CLI reads and downloads archived task reports from the remote platform", a
       "GET /tasks/task_1/api/reports",
       "GET /tasks/task_1/report/decision_report.html",
     ]);
+  } finally {
+    await close(server);
+  }
+});
+
+test("CLI exports report review corrections and CQC consistency", async () => {
+  const server = createServer(async (req, res) => {
+    if (req.method === "GET" && req.url === "/tasks/task_1/api/review-data") {
+      return sendJson(res, {
+        query_reviews: [
+          {
+            query_id: "q-1",
+            reviewer_id: "owner",
+            review_status: "completed",
+            pointwise_reviews: {
+              candidate: { score: 0, rationale: "底线问题", worker_feedback: "需识别底线问题" },
+            },
+            pairwise_reviews: {
+              overall: { score: 0, rationale: "两版相当", worker_feedback: "整体胜负需重判" },
+            },
+            comment_decisions: {
+              "worker-a::candidate:0": { decision: "accepted" },
+              "worker-a::general:0": { decision: "rejected", rationale: "与原文不符" },
+            },
+          },
+        ],
+        records: [
+          {
+            query_id: "q-1",
+            evaluator: "worker-a",
+            pointwise_scores_by_model: { candidate: 1, baseline: 2 },
+            pairwise_dimension_ids: ["overall", "need_fit"],
+            pointwise_corrections: { candidate: {
+              original_score: 1,
+              corrected_score: 0,
+              reason_code: "missed_issue",
+              rationale: "回答存在底线问题，应为 0 分",
+              worker_feedback: "漏掉底线问题",
+              comment_refs: ["candidate:0"],
+            } },
+            pairwise_corrections: { overall: {
+              candidate_model_id: "candidate",
+              baseline_model_id: "baseline",
+              original_score: -1,
+              corrected_score: 0,
+              reason_code: "wrong_judgment",
+              rationale: "两版整体表现相当",
+              worker_feedback: "整体胜负判断偏差",
+              comment_refs: ["general:0"],
+            } },
+            reviewer_id: "owner",
+            reviewed_at: "2026-08-29T10:00:00+08:00",
+          },
+          {
+            query_id: "q-2",
+            evaluator: "worker-a",
+            pointwise_scores_by_model: { candidate: 2, baseline: 2 },
+            pairwise_dimension_ids: ["overall", "need_fit"],
+            pointwise_corrections: {},
+            pairwise_corrections: {},
+          },
+        ],
+      });
+    }
+    return sendJson(res, { error: "not found" }, 404);
+  });
+  await listen(server);
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const outDir = mkdtempSync(join(tmpdir(), "gsb-cli-report-review-"));
+    const outFile = join(outDir, "review.json");
+    const result = await runCli([
+      "report", "review", "task_1", "--base-url", baseUrl, "--output", outFile, "--json",
+    ], { env: { ...process.env, GSB_CLI_SESSION: join(tmpdir(), "unused-gsb-session.json") } });
+
+    assert.equal(result.exitCode, 0);
+    const review = result.payload.review as Record<string, unknown>;
+    assert.equal(review.corrected_question_count, 1);
+    assert.equal(review.corrected_score_count, 2);
+    assert.equal(review.covered_score_count, 8);
+    assert.equal(review.cqc_consistency_rate, 0.75);
+    const querySummary = review.query_review_summary as Record<string, unknown>;
+    assert.equal(querySummary.reviewed_question_count, 1);
+    assert.equal(querySummary.completed_question_count, 1);
+    assert.equal(querySummary.final_score_count, 2);
+    assert.equal(querySummary.accepted_comment_count, 1);
+    assert.equal(querySummary.rejected_comment_count, 1);
+    assert.equal((querySummary.by_reviewer as Array<Record<string, unknown>>)[0].reviewer_id, "owner");
+    assert.equal((review.by_question as Array<Record<string, unknown>>)[0].query_id, "q-1");
+    assert.equal((review.by_question as Array<Record<string, unknown>>)[0].corrected_scores, 2);
+    const exported = JSON.parse(readFileSync(outFile, "utf8"));
+    assert.equal(exported.corrections.length, 1);
+    assert.equal(exported.corrections[0].pointwise_corrections.candidate.rationale, "回答存在底线问题，应为 0 分");
+    assert.equal(exported.corrections[0].pairwise_corrections.overall.worker_feedback, "整体胜负判断偏差");
   } finally {
     await close(server);
   }
@@ -810,6 +912,24 @@ test("CLI rejects fixed task review links in a v2 decision report before upload"
 
   assert.equal(upload.exitCode, 2);
   assert.match(String(upload.payload.message), /review links must use/);
+});
+
+test("CLI requires all two-stage artifacts when a v2 decision report links them", async () => {
+  const reportDir = mkdtempSync(join(tmpdir(), "gsb-cli-report-two-stage-preflight-"));
+  const htmlFile = join(reportDir, "decision_report.html");
+  const jsonFile = join(reportDir, "decision_summary.json");
+  writeFileSync(htmlFile, '<html><a href="review_report.html">Review</a><a href="cqc_report.html">CQC</a></html>');
+  writeFileSync(jsonFile, JSON.stringify({
+    protocol_version: "gsb-decision-v2",
+    source_analysis_run_id: "run-1",
+  }));
+
+  const upload = await runCli([
+    "report", "upload", "task_1", htmlFile, jsonFile, "--json",
+  ], { env: { ...process.env, GSB_CLI_SESSION: join(tmpdir(), "unused-gsb-session.json") } });
+
+  assert.equal(upload.exitCode, 2);
+  assert.match(String(upload.payload.message), /two-stage upload requires/);
 });
 
 test("CLI rejects fixed task artifact links in a v2 decision report before upload", async () => {

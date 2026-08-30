@@ -16,10 +16,10 @@ gsb-cli task publish <task-id> --json
 # → 将返回的 urls.eval 发给评估者
 # → 评估完成后：
 gsb-cli results export <task-id> --format json --output ./exports --json
-# → 生成不可覆盖的分析 run；从 JSON 输出读取 report 和 summary 路径
+# → 生成不可覆盖的分析 run；从 JSON 输出读取三张 HTML 和 summary 路径
 python3 scripts/build_gsb_decision_report.py --task <task-id> --config ./analysis_config.json --no-publish
 # → 确认分析结果后再归档
-gsb-cli report upload <task-id> <report-path> <summary-path> --json
+gsb-cli report upload <task-id> <review-report-path> <report-path> <cqc-report-path> <summary-path> --json
 ```
 
 每步优先读取返回中的 `next_commands`。出错的按 `issues[].next_step` 修复后用 `continue_after_fix.command` 继续。
@@ -39,9 +39,11 @@ npm 安装 `gsb-cli` 时会在 `postinstall` 阶段自动安装。环境变量 `
 - 用户要"创建/发布 GSB 任务"：走任务工作流。
 - 用户要"三模型 Review"：用 `task create --mode review` 创建；从返回的 `urls.manage` 上传 A/B/C Review JSONL，再执行 preflight/publish。当前 CLI dataset/bind 仍只支持 A/B AIDP 输入，不要误称已支持 Review 文件上传。
 - 三模型 Review 对每组 response 记录 `0/1/2/3` 绝对质量分和可选全局评论；不要要求或推断 GSB 胜负。
+- 普通 A/B 评估对两个真实模型分别记录 `0/1/2/3` 和必填原因；Pairwise 只采集 Overall GSB 与必填自然语言原因。需求理解、事实准确、内容专业、信息呈现、语言表达等只作为按光标位置插入正文的评论标签，不要把它们当作新结果中的独立 GSB 分数。标签和划线评论引用读取 `comment_mentions`，定位证据读取 `anchored_comments`。
 - 需要高亮重点 case 时，在 Review JSONL 行中使用 `reviewPriority.isPriority=true` 和非空 `comparisons`；这些历史评分只用于目录/证据提示，不当作当前 Review 结果。
 - 用户给了符合 AIDP contract 的 JSONL：直接检查并上传；CSV/XLSX 或其他 JSONL 才需要先转换。
 - 用户要"分析结果/生成报告"：先回收结果，完整读取[分析协议](references/analysis.md)和[决策报告模板](references/decision-report.md)，生成分析文件；用户确认或任务要求归档时，再单独上传。
+- 用户要在决策报告里复核错判/漏判：完整读取并执行[结论 Review 工作流](references/conclusion-review.md)。先上传四件套并打开 `report status` 返回的 `urls.review`；Review 完成后重新生成新的不可覆盖 analysis run，再上传新四件套。`report review` 只导出审计快照，不负责启动页面或重算正式报告。
 - 用户要"为什么赢/输、根因、bad case/good case、标注噪声、Regression"：生成统计 run 后，必须完整读取并执行[语义分析协议](references/semantic-analysis.md)，通过结构化审核产物生成语义结论；不得凭评分、评论关键词或 Agent 直觉直接写原因。
 
 ## 认证
@@ -152,7 +154,7 @@ python3 scripts/build_gsb_decision_report.py \
   --no-publish
 ```
 
-命令输出 JSON，包含 `run_id`、`run_dir`、`report` 和 `summary`。分析文件只写入新的 `report/runs/<analysis-run-id>/`，不会更新 task `report/` 根目录。
+命令输出 JSON，包含 `run_id`、`run_dir`、`review_report`、`report`、`cqc_report` 和 `summary`。分析文件只写入新的 `report/runs/<analysis-run-id>/`，不会更新 task `report/` 根目录。
 
 ### 需要语义分析时
 
@@ -162,14 +164,18 @@ python3 scripts/build_gsb_decision_report.py \
 
 ## 归档分析文件
 
-用户确认归档后，使用生成命令返回的 `report` 和 `summary` 路径上传：
+用户确认归档后，使用生成命令返回的 `review_report`、`report`、`cqc_report` 和 `summary` 路径上传：
 
 ```bash
-gsb-cli report upload <task-id> <report-path> <summary-path> --json
+gsb-cli report upload <task-id> <review-report-path> <report-path> <cqc-report-path> <summary-path> --json
 gsb-cli report status <task-id> --json
 ```
 
-上传接口只接受 `decision_report.html` 和 `decision_summary.json`。上传前校验 summary 与 HTML 中的 `../review/?q=` 相对链接；上传后必须执行 `report status` 回读。成功返回的 `urls.report` 是平台内报告地址。
+新生成的报告必须四件套一起上传：`review_report.html`、`decision_report.html`、`cqc_report.html`、`decision_summary.json`。上传后执行 `report status` 回读；成功返回的 `urls.review`、`urls.algorithm` 和 `urls.cqc` 分别对应 Review、to 算法和 to CQC 页面。
+
+题目 Review 保存在任务级覆盖层，不改写原始标注。最终分优先级固定为“我的题目终判 > 独立裁决/QC > 有效作业人员加权平均”；Pointwise 与 Overall GSB 分别终判，不相互自动改判。保存时未操作评论默认采纳，修正评论仍进入分析且修正说明计入 CQC 反馈，不采纳评论不进入分析；我的打分依据作为 reviewer evidence 进入算法与 CQC 分析。可见分析模板只展示 Overall GSB，分维度 GSB 仅保留在审计产物中。
+
+结论 Review 的启动、完成判定、重新生成与结果消费规则以[结论 Review 工作流](references/conclusion-review.md)为准。不要把 `gsb-cli report review` 当成启动或应用 Review 的命令；它只读取平台已保存的 Review 覆盖层并导出 JSON 审计快照。
 
 ## 参考文件
 
@@ -178,6 +184,7 @@ gsb-cli report status <task-id> --json
 - `references/agent-cli.md`：`gsb-cli` 完整命令说明和错误码速查。
 - `references/analysis.md`：Pointwise + Pairwise、多标注人员/质检、冲突、统计与置信度。
 - `references/decision-report.md`：默认决策报告结构、全量明细和交互协议。
+- `references/conclusion-review.md`：结论 Review 的启动方式、保存语义、完成后重生成与正式结果消费规则。
 - `references/semantic-analysis.md`：需要原因、Case、噪声或 Regression 结论时强制执行的双回答换位盲审、评论证据审核、最终裁决和产物协议。
 - `references/schemas/agent-blind-review-v1.schema.json`、`references/schemas/agent-semantic-audit-v1.schema.json`：LLM 语义分析逐题 JSONL 的固定输出契约。
 - `references/data-format.md`：输入数据格式和目录约束。

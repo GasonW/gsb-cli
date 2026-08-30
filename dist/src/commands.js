@@ -111,6 +111,8 @@ async function dispatch(globals, args) {
             return cmdReportUpload(globals, rest);
         if (subcommand === "download")
             return cmdReportDownload(globals, rest);
+        if (subcommand === "review")
+            return cmdReportReview(globals, rest);
     }
     if (command === "results") {
         if (subcommand === "summary")
@@ -1168,15 +1170,27 @@ async function cmdReportUpload(globals, args) {
         }
         if (summary?.protocol_version === "gsb-decision-v2") {
             const names = Object.keys(fileMap).sort();
-            if (names.length !== 2 || names[0] !== "decision_report.html" || names[1] !== "decision_summary.json") {
-                throw new CliUsageError("gsb-decision-v2 upload requires exactly decision_report.html and decision_summary.json");
-            }
             if (typeof summary.source_analysis_run_id !== "string" || !summary.source_analysis_run_id.trim()) {
                 throw new CliUsageError("gsb-decision-v2 summary requires source_analysis_run_id");
             }
             const html = fileMap["decision_report.html"];
             if (!html)
                 throw new CliUsageError("gsb-decision-v2 upload requires decision_report.html");
+            const legacyNames = ["decision_report.html", "decision_summary.json"];
+            const twoStageNames = ["cqc_report.html", "decision_report.html", "decision_summary.json", "review_report.html"];
+            const isLegacyBundle = names.length === legacyNames.length && names.every((name, index) => name === legacyNames[index]);
+            const isTwoStageBundle = names.length === twoStageNames.length && names.every((name, index) => name === twoStageNames[index]);
+            const referencesTwoStageReports = /href=["'](?:\.\/)?review_report\.html/.test(html)
+                || /href=["'](?:\.\/)?cqc_report\.html/.test(html);
+            if ((!isLegacyBundle && !isTwoStageBundle) || (referencesTwoStageReports && !isTwoStageBundle)) {
+                throw new CliUsageError("gsb-decision-v2 two-stage upload requires review_report.html, decision_report.html, cqc_report.html, and decision_summary.json");
+            }
+            if (isTwoStageBundle) {
+                for (const fileName of ["review_report.html", "cqc_report.html"]) {
+                    if (!fileMap[fileName])
+                        throw new CliUsageError(`gsb-decision-v2 upload requires ${fileName}`);
+                }
+            }
             const reviewLinks = [...html.matchAll(/href=["']([^"']*review\/\?q=[^"']*)["']/g)].map((match) => match[1]);
             if (reviewLinks.some((link) => !link.startsWith("../review/?q="))) {
                 throw new CliUsageError("gsb-decision-v2 review links must use ../review/?q=<query-id>");
@@ -1255,6 +1269,166 @@ async function cmdReportDownload(globals, args) {
         throw error;
     }
 }
+async function cmdReportReview(globals, args) {
+    const taskId = requireArg(args, 0, "task-id");
+    const reader = new OptionReader(args.slice(1));
+    const outputArg = reader.takeOptionalString("output");
+    reader.requireNoUnknown();
+    const client = await buildClient(globals);
+    try {
+        const data = await client.request("GET", `/tasks/${encodeURIComponent(taskId)}/api/review-data`);
+        const records = Array.isArray(data.records) ? data.records.filter((item) => Boolean(item && typeof item === "object" && !Array.isArray(item))) : [];
+        const queryReviews = Array.isArray(data.query_reviews)
+            ? data.query_reviews.filter((item) => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+            : [];
+        const correctionMap = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
+        const correctionCount = (record) => (Object.keys(correctionMap(record.pointwise_corrections)).length
+            + Object.keys(correctionMap(record.pairwise_corrections)).length);
+        const correctionFeedback = (record) => {
+            const fallback = String(record.correction_feedback || "");
+            return [record.pointwise_corrections, record.pairwise_corrections].flatMap((value) => (Object.values(correctionMap(value)).flatMap((detail) => {
+                const item = correctionMap(detail);
+                const feedback = String(item.worker_feedback || item.feedback || fallback).trim();
+                return feedback ? [feedback] : [];
+            })));
+        };
+        const corrections = records.flatMap((record) => {
+            const pointwise = correctionMap(record.pointwise_corrections);
+            const pairwise = correctionMap(record.pairwise_corrections);
+            if (Object.keys(pointwise).length === 0 && Object.keys(pairwise).length === 0)
+                return [];
+            return [{
+                    query_id: String(record.query_id || ""),
+                    evaluator: String(record.evaluator || ""),
+                    pointwise_corrections: pointwise,
+                    pairwise_corrections: pairwise,
+                    reviewer_id: String(record.reviewer_id || ""),
+                    reviewed_at: String(record.reviewed_at || ""),
+                }];
+        });
+        const byEvaluator = {};
+        for (const record of records) {
+            const evaluator = String(record.evaluator || "");
+            if (!evaluator)
+                continue;
+            byEvaluator[evaluator] ||= { corrected_questions: new Set(), corrected_scores: 0, covered_scores: 0 };
+            const original = record.pointwise_scores_by_model;
+            if (original && typeof original === "object" && !Array.isArray(original)) {
+                byEvaluator[evaluator].covered_scores += Object.keys(original).length;
+            }
+            if (Array.isArray(record.pairwise_dimension_ids)) {
+                byEvaluator[evaluator].covered_scores += record.pairwise_dimension_ids.length;
+            }
+        }
+        for (const correction of corrections) {
+            const item = byEvaluator[correction.evaluator] ||= { corrected_questions: new Set(), corrected_scores: 0, covered_scores: 0 };
+            item.corrected_questions.add(correction.query_id);
+            item.corrected_scores += correctionCount(correction);
+        }
+        const evaluatorStats = Object.entries(byEvaluator).map(([evaluator, item]) => ({
+            evaluator,
+            corrected_questions: item.corrected_questions.size,
+            corrected_scores: item.corrected_scores,
+            covered_scores: item.covered_scores,
+            cqc_consistency_rate: item.covered_scores ? (item.covered_scores - item.corrected_scores) / item.covered_scores : null,
+        })).sort((a, b) => b.corrected_scores - a.corrected_scores || a.evaluator.localeCompare(b.evaluator));
+        const byQuestion = {};
+        for (const correction of corrections) {
+            const item = byQuestion[correction.query_id] ||= { evaluators: new Set(), corrected_scores: 0, feedback: [] };
+            item.evaluators.add(correction.evaluator);
+            item.corrected_scores += correctionCount(correction);
+            item.feedback.push(...correctionFeedback(correction).map((feedback) => `${correction.evaluator}: ${feedback}`));
+        }
+        const questionStats = Object.entries(byQuestion).map(([queryId, item]) => ({
+            query_id: queryId,
+            corrected_evaluators: item.evaluators.size,
+            corrected_scores: item.corrected_scores,
+            feedback: item.feedback,
+        })).sort((a, b) => b.corrected_scores - a.corrected_scores || a.query_id.localeCompare(b.query_id));
+        const correctedQuestionCount = new Set(corrections.map((item) => item.query_id)).size;
+        const correctedScoreCount = corrections.reduce((sum, item) => sum + correctionCount(item), 0);
+        const coveredScoreCount = evaluatorStats.reduce((sum, item) => sum + item.covered_scores, 0);
+        const queryReviewStats = queryReviews.map((queryReview) => {
+            const pointwise = correctionMap(queryReview.pointwise_reviews);
+            const pairwise = correctionMap(queryReview.pairwise_reviews);
+            const decisions = Object.values(correctionMap(queryReview.comment_decisions)).map(correctionMap);
+            return {
+                query_id: String(queryReview.query_id || ""),
+                reviewer_id: String(queryReview.reviewer_id || ""),
+                review_status: String(queryReview.review_status || "in_progress"),
+                final_score_count: Object.keys(pointwise).length + Object.keys(pairwise).length,
+                accepted_comment_count: decisions.filter((item) => item.decision === "accepted").length,
+                rejected_comment_count: decisions.filter((item) => item.decision === "rejected").length,
+            };
+        });
+        const byReviewerMap = {};
+        for (const item of queryReviewStats) {
+            const reviewer = item.reviewer_id || "unknown";
+            const stats = byReviewerMap[reviewer] ||= {
+                reviewedQuestions: new Set(),
+                completedQuestions: new Set(),
+                finalScores: 0,
+                acceptedComments: 0,
+                rejectedComments: 0,
+            };
+            if (item.query_id)
+                stats.reviewedQuestions.add(item.query_id);
+            if (item.review_status === "completed" && item.query_id)
+                stats.completedQuestions.add(item.query_id);
+            stats.finalScores += item.final_score_count;
+            stats.acceptedComments += item.accepted_comment_count;
+            stats.rejectedComments += item.rejected_comment_count;
+        }
+        const byReviewer = Object.entries(byReviewerMap).map(([reviewerId, item]) => ({
+            reviewer_id: reviewerId,
+            reviewed_questions: item.reviewedQuestions.size,
+            completed_questions: item.completedQuestions.size,
+            final_scores: item.finalScores,
+            accepted_comments: item.acceptedComments,
+            rejected_comments: item.rejectedComments,
+        })).sort((a, b) => b.final_scores - a.final_scores || a.reviewer_id.localeCompare(b.reviewer_id));
+        const review = {
+            task_id: taskId,
+            corrected_question_count: correctedQuestionCount,
+            corrected_score_count: correctedScoreCount,
+            covered_score_count: coveredScoreCount,
+            cqc_consistency_rate: coveredScoreCount ? (coveredScoreCount - correctedScoreCount) / coveredScoreCount : null,
+            by_question: questionStats,
+            by_evaluator: evaluatorStats,
+            corrections,
+            query_review_summary: {
+                reviewed_question_count: queryReviewStats.length,
+                completed_question_count: queryReviewStats.filter((item) => item.review_status === "completed").length,
+                final_score_count: queryReviewStats.reduce((sum, item) => sum + item.final_score_count, 0),
+                accepted_comment_count: queryReviewStats.reduce((sum, item) => sum + item.accepted_comment_count, 0),
+                rejected_comment_count: queryReviewStats.reduce((sum, item) => sum + item.rejected_comment_count, 0),
+                by_question: queryReviewStats,
+                by_reviewer: byReviewer,
+            },
+            query_reviews: queryReviews,
+        };
+        let outputPath = "";
+        if (outputArg) {
+            outputPath = resolve(expandHome(outputArg));
+            mkdirSync(dirname(outputPath), { recursive: true });
+            writeFileSync(outputPath, `${JSON.stringify(review, null, 2)}\n`, "utf8");
+        }
+        return {
+            payload: {
+                ok: true,
+                message: (corrections.length || queryReviews.length) ? "已读取报告 Review 记录" : "暂无报告 Review 记录",
+                review,
+                ...(outputPath ? { output_path: outputPath } : {}),
+            },
+            exitCode: 0,
+        };
+    }
+    catch (error) {
+        if (error instanceof ApiError)
+            return apiFailurePayload(error, "读取报告 Review 记录", globals);
+        throw error;
+    }
+}
 async function cmdResultsSummary(globals, args) {
     const taskId = requireArg(args, 0, "task-id");
     const reader = new OptionReader(args.slice(1));
@@ -1282,6 +1456,15 @@ function buildReportUrls(baseUrl, report) {
     }
     if (typeof report.summary_url === "string" && report.summary_url) {
         urls.summary = absoluteUrl(baseUrl, report.summary_url);
+    }
+    if (typeof report.review_url === "string" && report.review_url) {
+        urls.review = absoluteUrl(baseUrl, report.review_url);
+    }
+    if (typeof report.algorithm_url === "string" && report.algorithm_url) {
+        urls.algorithm = absoluteUrl(baseUrl, report.algorithm_url);
+    }
+    if (typeof report.cqc_url === "string" && report.cqc_url) {
+        urls.cqc = absoluteUrl(baseUrl, report.cqc_url);
     }
     return urls;
 }

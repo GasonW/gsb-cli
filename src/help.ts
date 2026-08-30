@@ -59,8 +59,9 @@ Commands:
 
   report status <task-id>
   report url <task-id>
-  report upload <task-id> ./decision_report.html ./decision_summary.json  # v2 preflight + archive
+  report upload <task-id> ./review_report.html ./decision_report.html ./cqc_report.html ./decision_summary.json
   report download <task-id> --type html --output ./report.html
+  report review <task-id> --output ./review-feedback.json
 
   results summary <task-id> --all
   results export <task-id> --format json --output ./exports
