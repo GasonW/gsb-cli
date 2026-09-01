@@ -749,6 +749,7 @@ test("CLI exports report review corrections and CQC consistency", async () => {
             query_id: "q-1",
             reviewer_id: "owner",
             review_status: "completed",
+            review_schema_version: "chatbuy-query-review/v2",
             pointwise_reviews: {
               candidate: { score: 0, rationale: "底线问题", worker_feedback: "需识别底线问题" },
             },
@@ -759,6 +760,23 @@ test("CLI exports report review corrections and CQC consistency", async () => {
               "worker-a::candidate:0": { decision: "accepted" },
               "worker-a::general:0": { decision: "rejected", rationale: "与原文不符" },
             },
+            case_issue_reviews: {
+              response_issue_sets: {
+                candidate: { issues: [{ issue_id: "issue-1", label: "专业性不足", cause_role: "primary", issue_scope: "pointwise", issue_scopes: ["pointwise", "relative"], summary: "人工修正后的原因" }] },
+                baseline: { issues: [] },
+              },
+              relative_issue_set: { target_model: "candidate", baseline_model: "baseline", issues: [] },
+            },
+          },
+        ],
+        case_review_drafts: [
+          {
+            query_id: "q-1",
+            response_issue_sets: {
+              candidate: { issues: [{ issue_id: "issue-1", label: "专业性不足", cause_role: "primary", issue_scope: "pointwise", issue_scopes: ["pointwise"], summary: "AI 原因" }] },
+              baseline: { issues: [] },
+            },
+            relative_issue_set: { target_model: "candidate", baseline_model: "baseline", issues: [] },
           },
         ],
         records: [
@@ -824,6 +842,9 @@ test("CLI exports report review corrections and CQC consistency", async () => {
     assert.equal(querySummary.final_score_count, 2);
     assert.equal(querySummary.accepted_comment_count, 1);
     assert.equal(querySummary.rejected_comment_count, 1);
+    assert.equal(querySummary.final_issue_count, 1);
+    assert.equal(querySummary.primary_issue_count, 1);
+    assert.equal(querySummary.issue_modified_count, 1);
     assert.equal((querySummary.by_reviewer as Array<Record<string, unknown>>)[0].reviewer_id, "owner");
     assert.equal((review.by_question as Array<Record<string, unknown>>)[0].query_id, "q-1");
     assert.equal((review.by_question as Array<Record<string, unknown>>)[0].corrected_scores, 2);

@@ -275,7 +275,7 @@ python3 scripts/build_gsb_decision_report.py --task <task-id> --config <analysis
 从命令 JSON 输出读取 `review_report`、`report`、`cqc_report` 和 `summary` 路径；确认后再上传归档。也可以查看和下载平台侧已有报告：
 
 ```bash
-gsb-cli report upload <task-id> <review-report-path> <report-path> <cqc-report-path> <summary-path> --json
+gsb-cli report upload <task-id> <review-report-path> <report-path> <cqc-report-path> <summary-path> [case-review-draft.jsonl] --json
 gsb-cli report status <task-id> --json
 gsb-cli report download <task-id> --type html --output ./decision_report.html --json
 gsb-cli report download <task-id> --type html --file review_report.html --output ./review_report.html --json
@@ -284,9 +284,9 @@ gsb-cli report download <task-id> --type json --output ./decision_summary.json -
 gsb-cli report review <task-id> --output ./review-feedback.json --json
 ```
 
-`report upload` 会把本地 `.html` 和 `.json` 文本写入线上任务的 PostgreSQL report 记录。新生成的 `gsb-decision-v2` bundle 固定包含 Review、算法、CQC 三张 HTML 和一份 JSON 摘要；CLI 会校验固定文件名、`source_analysis_run_id` 和 `../review/?q=` 相对题目链接。旧的两文件 v2 bundle 仍可读取与上传，但只要算法报告引用两阶段页面，就必须四件套一起上传。上传需要当前账号有任务管理权限。
+`report upload` 会把本地 `.html`、`.json` 和 `.jsonl` 文本写入线上任务的 PostgreSQL report 记录。新生成的 `gsb-decision-v2` bundle 固定包含 Review、算法、CQC 三张 HTML 和一份 JSON 摘要；Case 问题 Review 工作流可额外上传 `case-review-draft.jsonl`，使 Review 接口同时返回不可变 AI 草稿与人工最终值。CLI 会校验固定文件名、JSONL 行结构、`source_analysis_run_id` 和 `../review/?q=` 相对题目链接。旧的两文件 v2 bundle 仍可读取与上传，但只要算法报告引用两阶段页面，就必须上传标准四件套，AI 草稿作为可选第五件。上传需要当前账号有任务管理权限。
 
-Review 报告只保留原模块 4 与筛选器，操作单元是题目。评论可标记采纳、修正或不采纳；未操作评论在保存时默认采纳，修正评论仍进入后续分析且修正说明计入 CQC 反馈，不采纳评论必须写理由且不进入分析。Pointwise 两个模型和 Overall GSB 可给出题目级最终分，改分时“我的原因”为选填；未改分默认认可当前统计来源分。最终统计优先级为“我的终判 > 独立裁决/QC > 有效作业人员加权平均”。可见报告只展示 Overall GSB，不展示分维度 GSB。`report review` 导出题目 Review、评论状态，以及按题目和 Reviewer 的终判量。
+Review 报告只保留原模块 4 与筛选器，操作单元是题目。评论可标记采纳、修正或不采纳；未操作评论在保存时默认采纳，修正评论仍进入后续分析且修正说明计入 CQC 反馈，不采纳评论必须写理由且不进入分析。Pointwise 两个模型和 Overall GSB 可给出题目级最终分，改分时“我的原因”为选填；未改分默认认可当前统计来源分。问题成因直接编辑标签、主次和总结，关联人工评论为选填，不编辑问题优先级、证据状态、事实核验备注或回答证据。每题另有自由备注，可供后续 AI 分析和页面搜索。最终统计优先级为“我的终判 > 独立裁决/QC > 有效作业人员加权平均”。可见报告只展示 Overall GSB，不展示分维度 GSB。`report review` 导出题目 Review、评论状态、问题成因和题目备注，以及按题目和 Reviewer 的终判量。
 
 `gsb-decision-v2` 的可见报告直接展示真实模型版本、总体 G/S/B 与双方胜率（排除 Same）、题目级 Pointwise 平均分/0 分率/`≥2` 分率，并把差异稳定性与数据可信度分开判断；题目范围与标注记录处理分开说明，原始评分记录分布仅保存在审计产物。报告不展示协议、run id、checksum，也不输出上线建议。
 

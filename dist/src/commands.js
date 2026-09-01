@@ -1138,7 +1138,7 @@ async function cmdReportUpload(globals, args) {
     reader.requireNoUnknown();
     const files = reader.rest();
     if (files.length === 0) {
-        throw new CliUsageError("report upload requires at least one .html or .json file");
+        throw new CliUsageError("report upload requires at least one .html, .json, or .jsonl file");
     }
     const fileMap = {};
     for (const file of files) {
@@ -1148,14 +1148,28 @@ async function cmdReportUpload(globals, args) {
         }
         const fileName = basename(path);
         const lowerName = fileName.toLowerCase();
-        const acceptedSuffix = lowerName.endsWith(".html") || lowerName.endsWith(".json");
+        const acceptedSuffix = lowerName.endsWith(".html") || lowerName.endsWith(".json") || lowerName.endsWith(".jsonl");
         if (!acceptedSuffix) {
-            throw new CliUsageError(`report upload only accepts .html and .json files: ${file}`);
+            throw new CliUsageError(`report upload only accepts .html, .json, and .jsonl files: ${file}`);
         }
         if (fileName in fileMap) {
             throw new CliUsageError(`duplicate report file name: ${fileName}`);
         }
         fileMap[fileName] = readFileSync(path, "utf8");
+        if (lowerName.endsWith(".jsonl")) {
+            for (const [index, line] of fileMap[fileName].split(/\r?\n/u).entries()) {
+                if (!line.trim())
+                    continue;
+                try {
+                    const value = JSON.parse(line);
+                    if (!value || typeof value !== "object" || Array.isArray(value))
+                        throw new Error("row is not an object");
+                }
+                catch {
+                    throw new CliUsageError(`${fileName}:${index + 1} must contain a JSON object`);
+                }
+            }
+        }
     }
     const v2SummaryText = fileMap["decision_summary.json"];
     if (v2SummaryText) {
@@ -1178,8 +1192,9 @@ async function cmdReportUpload(globals, args) {
                 throw new CliUsageError("gsb-decision-v2 upload requires decision_report.html");
             const legacyNames = ["decision_report.html", "decision_summary.json"];
             const twoStageNames = ["cqc_report.html", "decision_report.html", "decision_summary.json", "review_report.html"];
+            const twoStageWithDraftNames = [...twoStageNames, "case-review-draft.jsonl"].sort();
             const isLegacyBundle = names.length === legacyNames.length && names.every((name, index) => name === legacyNames[index]);
-            const isTwoStageBundle = names.length === twoStageNames.length && names.every((name, index) => name === twoStageNames[index]);
+            const isTwoStageBundle = (names.length === twoStageNames.length && names.every((name, index) => name === twoStageNames[index])) || (names.length === twoStageWithDraftNames.length && names.every((name, index) => name === twoStageWithDraftNames[index]));
             const referencesTwoStageReports = /href=["'](?:\.\/)?review_report\.html/.test(html)
                 || /href=["'](?:\.\/)?cqc_report\.html/.test(html);
             if ((!isLegacyBundle && !isTwoStageBundle) || (referencesTwoStageReports && !isTwoStageBundle)) {
@@ -1281,6 +1296,9 @@ async function cmdReportReview(globals, args) {
         const queryReviews = Array.isArray(data.query_reviews)
             ? data.query_reviews.filter((item) => Boolean(item && typeof item === "object" && !Array.isArray(item)))
             : [];
+        const caseReviewDrafts = Array.isArray(data.case_review_drafts)
+            ? data.case_review_drafts.filter((item) => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+            : [];
         const correctionMap = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
         const correctionCount = (record) => (Object.keys(correctionMap(record.pointwise_corrections)).length
             + Object.keys(correctionMap(record.pairwise_corrections)).length);
@@ -1348,10 +1366,33 @@ async function cmdReportReview(globals, args) {
         const correctedQuestionCount = new Set(corrections.map((item) => item.query_id)).size;
         const correctedScoreCount = corrections.reduce((sum, item) => sum + correctionCount(item), 0);
         const coveredScoreCount = evaluatorStats.reduce((sum, item) => sum + item.covered_scores, 0);
+        const issueList = (value) => {
+            const item = correctionMap(value);
+            const responseSets = correctionMap(item.response_issue_sets);
+            const relativeSet = correctionMap(item.relative_issue_set);
+            return [
+                ...Object.values(responseSets).flatMap((issueSet) => {
+                    const issues = correctionMap(issueSet).issues;
+                    return Array.isArray(issues) ? issues.map(correctionMap) : [];
+                }),
+                ...(Array.isArray(relativeSet.issues) ? relativeSet.issues.map(correctionMap) : []),
+            ];
+        };
+        const draftsByQuery = new Map(caseReviewDrafts.map((draft) => [String(draft.query_id || ""), draft]));
         const queryReviewStats = queryReviews.map((queryReview) => {
             const pointwise = correctionMap(queryReview.pointwise_reviews);
             const pairwise = correctionMap(queryReview.pairwise_reviews);
             const decisions = Object.values(correctionMap(queryReview.comment_decisions)).map(correctionMap);
+            const finalIssues = issueList(queryReview.case_issue_reviews);
+            const draftIssues = issueList(draftsByQuery.get(String(queryReview.query_id || "")));
+            const finalById = new Map(finalIssues.map((issue) => [String(issue.issue_id || ""), issue]));
+            const draftById = new Map(draftIssues.map((issue) => [String(issue.issue_id || ""), issue]));
+            const issueAddedCount = [...finalById.keys()].filter((issueId) => !draftById.has(issueId)).length;
+            const issueRemovedCount = [...draftById.keys()].filter((issueId) => !finalById.has(issueId)).length;
+            const issueModifiedCount = [...finalById.entries()].filter(([issueId, issue]) => {
+                const draftIssue = draftById.get(issueId);
+                return draftIssue && JSON.stringify(draftIssue) !== JSON.stringify(issue);
+            }).length;
             return {
                 query_id: String(queryReview.query_id || ""),
                 reviewer_id: String(queryReview.reviewer_id || ""),
@@ -1359,6 +1400,11 @@ async function cmdReportReview(globals, args) {
                 final_score_count: Object.keys(pointwise).length + Object.keys(pairwise).length,
                 accepted_comment_count: decisions.filter((item) => item.decision === "accepted").length,
                 rejected_comment_count: decisions.filter((item) => item.decision === "rejected").length,
+                final_issue_count: finalIssues.length,
+                primary_issue_count: finalIssues.filter((item) => item.cause_role === "primary").length,
+                issue_added_count: issueAddedCount,
+                issue_removed_count: issueRemovedCount,
+                issue_modified_count: issueModifiedCount,
             };
         });
         const byReviewerMap = {};
@@ -1402,10 +1448,16 @@ async function cmdReportReview(globals, args) {
                 final_score_count: queryReviewStats.reduce((sum, item) => sum + item.final_score_count, 0),
                 accepted_comment_count: queryReviewStats.reduce((sum, item) => sum + item.accepted_comment_count, 0),
                 rejected_comment_count: queryReviewStats.reduce((sum, item) => sum + item.rejected_comment_count, 0),
+                final_issue_count: queryReviewStats.reduce((sum, item) => sum + item.final_issue_count, 0),
+                primary_issue_count: queryReviewStats.reduce((sum, item) => sum + item.primary_issue_count, 0),
+                issue_added_count: queryReviewStats.reduce((sum, item) => sum + item.issue_added_count, 0),
+                issue_removed_count: queryReviewStats.reduce((sum, item) => sum + item.issue_removed_count, 0),
+                issue_modified_count: queryReviewStats.reduce((sum, item) => sum + item.issue_modified_count, 0),
                 by_question: queryReviewStats,
                 by_reviewer: byReviewer,
             },
             query_reviews: queryReviews,
+            case_review_drafts: caseReviewDrafts,
         };
         let outputPath = "";
         if (outputArg) {
