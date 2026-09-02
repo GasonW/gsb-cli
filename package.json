@@ -29,6 +29,10 @@
     "cli"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "devDependencies": {
     "@types/node": "^22.15.30",
     "typescript": "^5.8.3"

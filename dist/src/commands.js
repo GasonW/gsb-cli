@@ -7,7 +7,7 @@ import { datasetCheckPayload, datasetPath, FORMAT_GUIDANCE, inspectDatasetDir, j
 import { HELP_TEXT } from "./help.js";
 import { hasErrors, issue, redactedArgv } from "./issues.js";
 import { clearSession, expandHome, loadSessions, saveSession, sessionPath } from "./session.js";
-import { installSkill, skillInfo, skillTargets, uninstallSkill } from "./skill.js";
+import { installSkill, SKILL_NAME, skillInfo, skillTargets, uninstallSkill } from "./skill.js";
 import { checkForUpdate, CLI_VERSION, DEFAULT_BASE_URL } from "./version.js";
 export async function runCli(rawArgv, options = {}) {
     try {
@@ -202,7 +202,7 @@ function cmdSkillStatus(globals, args) {
             ok: true,
             message: "skill 安装状态",
             skill: {
-                name: "gsb-eval",
+                name: SKILL_NAME,
                 targets: skillTargets(target, globals.env).map((item) => skillInfo(item.target, globals.env)),
             },
         },

@@ -1007,30 +1007,12 @@ test("skill install copies bundled skill into the selected Agent skills director
 
   const install = await runCli(["skill", "install", "--target", "codex", "--mode", "copy", "--force", "--json"], { env });
   assert.equal(install.exitCode, 0);
-  assert.equal(existsSync(join(codexRoot, "gsb-eval", "SKILL.md")), true);
-  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "analysis.md")), true);
-  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "decision-report.md")), true);
-  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "semantic-analysis.md")), true);
-  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "schemas", "agent-blind-review-v1.schema.json")), true);
-  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "schemas", "agent-semantic-audit-v1.schema.json")), true);
-  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "case-analysis-report.md")), false);
-  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "analysis-v2.md")), false);
-  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "decision-report-v1.md")), false);
-  assert.equal(existsSync(join(codexRoot, "gsb-eval", "references", "decision-report-v2.md")), false);
-  const installedSkill = readFileSync(join(codexRoot, "gsb-eval", "SKILL.md"), "utf8");
-  assert.match(installedSkill, /## 生成分析文件/);
-  assert.match(installedSkill, /## 归档分析文件/);
-  assert.match(installedSkill, /唯一可直接调用的统计分析入口/);
-  assert.match(installedSkill, /references\/semantic-analysis\.md/);
-  assert.match(installedSkill, /--no-publish/);
-  assert.match(installedSkill, /method_overrides/);
-  const semanticProtocol = readFileSync(join(codexRoot, "gsb-eval", "references", "semantic-analysis.md"), "utf8");
-  assert.match(semanticProtocol, /覆盖全部已有评估结果的题目/);
-  assert.match(semanticProtocol, /Pass 2：交换输入顺序 B\/A/);
-  const blindSchema = JSON.parse(readFileSync(join(codexRoot, "gsb-eval", "references", "schemas", "agent-blind-review-v1.schema.json"), "utf8")) as { properties?: { schema_version?: { const?: string } } };
-  const semanticSchema = JSON.parse(readFileSync(join(codexRoot, "gsb-eval", "references", "schemas", "agent-semantic-audit-v1.schema.json"), "utf8")) as { properties?: { schema_version?: { const?: string } } };
-  assert.equal(blindSchema.properties?.schema_version?.const, "gsb-agent-blind-review/v1");
-  assert.equal(semanticSchema.properties?.schema_version?.const, "gsb-agent-semantic-audit/v1");
+  assert.equal(existsSync(join(codexRoot, "gsb-cli", "SKILL.md")), true);
+  assert.equal(existsSync(join(codexRoot, "gsb-cli", "references", "agent-cli.md")), true);
+  assert.equal(existsSync(join(codexRoot, "gsb-cli", "references", "data-format.md")), true);
+  const installedSkill = readFileSync(join(codexRoot, "gsb-cli", "SKILL.md"), "utf8");
+  assert.match(installedSkill, /name: gsb-cli/);
+  assert.match(installedSkill, /gsb-analysis/);
 
   const status = await runCli(["skill", "status", "--target", "codex", "--json"], { env });
   assert.equal(status.exitCode, 0);
@@ -1049,7 +1031,7 @@ test("skill install can symlink bundled skill for development", async () => {
 
   const install = await runCli(["skill", "install", "--target", "cursor", "--mode", "symlink", "--force", "--json"], { env });
   assert.equal(install.exitCode, 0);
-  assert.equal(lstatSync(join(cursorRoot, "gsb-eval")).isSymbolicLink(), true);
+  assert.equal(lstatSync(join(cursorRoot, "gsb-cli")).isSymbolicLink(), true);
 });
 
 test("version command reports newer remote version without changing JSON shape", async () => {

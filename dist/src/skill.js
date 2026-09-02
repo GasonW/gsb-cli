@@ -2,7 +2,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, realpathSync, readFileSync, r
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-export const SKILL_NAME = "gsb-eval";
+export const SKILL_NAME = "gsb-cli";
 const COPY_EXCLUDES = new Set([
     ".DS_Store",
     "__pycache__",

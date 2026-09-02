@@ -1,13 +1,5 @@
 # GSB 统一 JSONL 输入
 
-## 决策分析评次字段
-
-`gsb-decision-v2` 的每个评次至少需要：稳定 Query ID、评估者、角色（worker/qc/adjudicator）、L/R 真实模型、两个模型的 Pointwise `0/1/2/3`、Pairwise Overall、状态和结果 lineage。不同题可以有不同 Worker 数。
-
-AIDP 历史/外部结果可以继续提供五维 Pairwise。新 ChatBuy Eval 结果只提供 Overall；需求理解、事实准确、内容专业、信息呈现、语言表达等 `comment_mentions` 是自然语言原因标签，不得转换为分维度 GSB。分析器必须按实际存在的维度统计，缺失五维时明确标为未采集，不得补值。
-
-归一化后 Pointwise 按真实模型保存，Pairwise winner 可以直接保存真实模型名；L/R 仍需保留用于身份和位置偏好审计。复制或继承的 workflow final 必须标为 derived，不能增加票数。完整处理口径见 `analysis.md`。
-
 ## 标准格式
 
 AIDP 与 ChatBuy Eval 共用一个 JSONL。每个非空行是一个 JSON object，并完整包含同一道题的 A/B 数据：

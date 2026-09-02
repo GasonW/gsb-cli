@@ -71,10 +71,10 @@ npm -v
 npm install -g gsb-cli
 ```
 
-安装包内自带 `gsb-eval` Agent skill。`npm install` 会默认把 skill 复制到 Codex 和 Cursor 的 skills 目录：
+安装包内自带 `gsb-cli` Agent skill。`npm install` 会默认把 skill 复制到 Codex 和 Cursor 的 skills 目录：
 
-- Codex: `~/.codex/skills/gsb-eval`
-- Cursor: `~/.cursor/skills/gsb-eval`
+- Codex: `~/.codex/skills/gsb-cli`
+- Cursor: `~/.cursor/skills/gsb-cli`
 
 如果只想安装到某一个 Agent，或跳过自动安装：
 

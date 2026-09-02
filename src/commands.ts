@@ -7,7 +7,7 @@ import { datasetCheckPayload, datasetPath, FORMAT_GUIDANCE, inspectDatasetDir, j
 import { HELP_TEXT } from "./help.js";
 import { hasErrors, issue, redactedArgv } from "./issues.js";
 import { clearSession, expandHome, loadSessions, saveSession, sessionPath } from "./session.js";
-import { installSkill, skillInfo, skillTargets, uninstallSkill, type SkillInstallMode, type SkillTarget } from "./skill.js";
+import { installSkill, SKILL_NAME, skillInfo, skillTargets, uninstallSkill, type SkillInstallMode, type SkillTarget } from "./skill.js";
 import type { CliGlobals, CliResult, DatasetInfo, JsonObject, SessionData } from "./types.js";
 import { checkForUpdate, CLI_VERSION, DEFAULT_BASE_URL } from "./version.js";
 
@@ -197,7 +197,7 @@ function cmdSkillStatus(globals: CliGlobals, args: string[]): CliResult {
       ok: true,
       message: "skill 安装状态",
       skill: {
-        name: "gsb-eval",
+        name: SKILL_NAME,
         targets: skillTargets(target, globals.env).map((item) => skillInfo(item.target, globals.env)),
       },
     },

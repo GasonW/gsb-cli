@@ -142,7 +142,7 @@ Compatibility rule:
 
 ## Bundled Skill Contract
 
-The npm package ships `skills/gsb-eval/` with the CLI. `npm install` runs `scripts/postinstall.mjs`, which calls:
+The npm package ships `skills/gsb-cli/` with the CLI. `npm install` runs `scripts/postinstall.mjs`, which calls:
 
 ```bash
 gsb-cli skill install --target all --mode copy --force --json
@@ -154,7 +154,7 @@ Environment controls:
 - `GSB_CLI_SKILL_MODE=copy|symlink`
 - `GSB_CLI_SKIP_SKILL_INSTALL=1`
 
-The skill must describe commands that exist in this package version. If command syntax changes, update `skills/gsb-eval/SKILL.md`, `skills/gsb-eval/references/`, `README.md`, source, generated `dist/`, and tests together.
+The skill must describe commands that exist in this package version. If command syntax changes, update `skills/gsb-cli/SKILL.md`, `skills/gsb-cli/references/`, `README.md`, source, generated `dist/`, and tests together. Evaluation analysis methods and report-generation instructions belong to the sibling framework repository's `gsb-analysis` skill and registered workflow.
 
 ## Version Check Contract
 

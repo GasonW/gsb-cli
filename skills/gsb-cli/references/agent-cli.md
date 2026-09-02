@@ -299,16 +299,8 @@ gsb-cli results export <task-id> --format zip --output ./exports --json
 
 ### 7. 报告管理
 
-生成分析文件（在 platform repository 根目录执行）：
-
-```bash
-python3 scripts/build_gsb_decision_report.py \
-  --task <task-id> \
-  --config <analysis-config.json> \
-  --no-publish
-```
-
-入口创建不可覆盖的 `report/runs/<analysis-run-id>/`，并在 JSON 输出中返回 `review_report`、`report`、`cqc_report` 和 `summary` 路径；生成阶段不更新 task `report/` 根目录。
+分析文件由 platform repository 的
+`docs/analysis-specs/human-eval-case-review-workflow-spec.md` 所列脚本生成。本节只说明 CLI 的归档操作。
 
 ```bash
 # 查看报告状态
@@ -327,7 +319,7 @@ gsb-cli report download <task-id> --type html --output ./report.html --json
 gsb-cli report review <task-id> --output ./review-feedback.json --json
 ```
 
-结论 Review 从 `report status` 返回的 `urls.review` 启动。完成 Review 后必须在 platform repository 重新运行 canonical 报告生成入口并上传新的四件套，正式算法/CQC 报告才会消费终判；完整流程见 `conclusion-review.md`。
+Review 从 `report status` 返回的 `urls.review` 启动。完成后按 platform 主工作流生成新的最终四件套并再次上传。
 
 ---
 
@@ -355,9 +347,8 @@ gsb-cli task publish <task-id> --json
 # 5. 等待评估完成后回收结果
 gsb-cli results export <task-id> --format json --output ./exports --json
 
-# 6. 生成不可覆盖的分析 run
-python3 scripts/build_gsb_decision_report.py --task <task-id> --config <analysis-config.json> --no-publish
-# → 从 JSON 输出读取 report 和 summary 路径
+# 6. 在 platform repository 按主工作流生成不可覆盖的最终分析 run
+# → 从最终命令 JSON 输出读取 review_report、report、cqc_report 和 summary
 
 # 7. 确认后归档报告
 gsb-cli report upload <task-id> <review-report-path> <report-path> <cqc-report-path> <summary-path> --json

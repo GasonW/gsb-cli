@@ -22,7 +22,7 @@ Commands:
   skill status --target all
   skill uninstall --target codex
 
-  Skill 管理：将 gsb-eval skill 安装到 Codex/Cursor Agent 目录。
+  Skill 管理：将 gsb-cli skill 安装到 Codex/Cursor Agent 目录。
   npm install 时自动以 copy 模式安装。开发时推荐 symlink：
     gsb-cli skill install --target codex --mode symlink
   环境变量 GSB_CLI_SKILL_TARGET=all|codex|cursor 控制目标，

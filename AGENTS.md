@@ -15,13 +15,13 @@ This repository owns:
 - Generated publish output under `dist/`.
 - npm packaging in `package.json` and `package-lock.json`.
 - Public CLI docs in `README.md` and `docs/api-contract.md`.
-- The bundled Agent skill under `skills/gsb-eval/`.
+- The bundled platform-operation Agent skill under `skills/gsb-cli/`.
 - npm `postinstall` skill auto-install behavior under `scripts/postinstall.mjs`.
 
 ## Platform Capability Parity
 
 Whenever ChatBuy GSB platform capabilities or HTTP API contracts change, update
-this CLI and the bundled `gsb-eval` skill in the same change set so Agent
+this CLI and the bundled `gsb-cli` skill in the same change set so Agent
 workflows match the platform.
 
 Minimum sync checklist:
@@ -31,12 +31,21 @@ Minimum sync checklist:
 3. Run `npm run build` so `dist/` matches source.
 4. Update `README.md`.
 5. Update `docs/api-contract.md`.
-6. Update `skills/gsb-eval/SKILL.md` and relevant files under
-   `skills/gsb-eval/references/`.
+6. Update `skills/gsb-cli/SKILL.md` and relevant files under
+   `skills/gsb-cli/references/`.
 7. Run `npm test`, or explicitly document why it could not be run.
 
 Do not document a platform capability in the skill unless the CLI command exists
 or the skill clearly states that the action requires direct platform access.
+
+## Analysis Boundary
+
+This repository does not own evaluation analysis methods, prompts, schemas,
+Review workflow, or report templates. Those assets and the project-local
+`gsb-analysis` skill live in `chatbuy_gsb_eval_framework`. The bundled
+`gsb-cli` skill may export platform results and upload confirmed reports, but it
+must route analysis requests to that repository instead of carrying a second
+analysis entry point.
 
 ## Packaging And Skill Rules
 
