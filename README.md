@@ -167,8 +167,10 @@ NestJS/PostgreSQL 部署会对 API 启用 double-submit CSRF。CLI 会在登录�
 `X-Suda-Csrf-Token` 请求头；不需要手工复制 token。旧 session 遇到 CSRF 403 时会自动
 补取 token 并重试一次，未启用 CSRF 的旧 Python 部署仍可继续使用。
 
-准备一份与 AIDP 相同格式的 A/B JSONL。一行就是一道题，至少包含
+准备一份与 AIDP 相同格式的 A/B JSON 或 JSONL。JSON 可使用数组或 `records/items` 包装，JSONL 一行就是一道题；至少包含
 `taskName/queryId/query/versionAName/versionBName/responseA/responseB/productCardsA/productCardsB`。
+
+可选的 `traceA`、`traceB` 必须是 JSON object 字符串数组。CLI 会校验 Trace，并在规范化后的任务输入中保留有效内容。
 
 ```text
 input.jsonl
@@ -181,8 +183,11 @@ gsb-cli dataset check --input ./input.jsonl --json
 gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
 ```
 
+如果输入来自 framework 的可复用加工数据，annotation archive 按一次模型对比分组：
+`workspace/annotation_sets/<YYMMDD-ModelA-vs-ModelB>/`。创建任务前，先把该对比需要的 cohort 与 batch slice 合并成一份输入；一个 task 不再按 cohort 或 batch 拆分。framework 管理的 task ID 使用 `YYMMDD-ModelA-ModelB[-remark]`。
+
 历史任务仍可使用 `dataset check/upload --a <dir-a> --b <dir-b>` 和
-`task bind --a <dataset-a> --b <dataset-b>`；新任务应使用单 JSONL，避免维护两种输入变体。
+`task bind --a <dataset-a> --b <dataset-b>`；新任务应使用聚合后的统一输入，平台会规范化为根级 `input.jsonl`。
 
 同名数据集上传规则：
 

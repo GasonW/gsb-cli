@@ -22,7 +22,7 @@ Commands:
   skill status --target all
   skill uninstall --target codex
 
-  Skill 管理：将 gsb-cli skill 安装到 Codex/Cursor Agent 目录。
+  Skill 管理：将 gsb-eval skill 安装到 Codex/Cursor Agent 目录。
   npm install 时自动以 copy 模式安装。开发时推荐 symlink：
     gsb-cli skill install --target codex --mode symlink
   环境变量 GSB_CLI_SKILL_TARGET=all|codex|cursor 控制目标，
@@ -33,17 +33,17 @@ Commands:
   auth whoami
   auth logout
 
-  dataset check --input <aidp-compatible.jsonl>
+  dataset check --input <aidp-compatible.json|jsonl>
   dataset check <dir> --verbose                         # legacy
   dataset check --a <version-a-dir> --b <version-b-dir>
   dataset check --root <root> --version-a <name> --version-b <name>
-  dataset upload --input <aidp-compatible.jsonl> --name <name>
+  dataset upload --input <aidp-compatible.json|jsonl> --name <name>
   dataset upload <dir> --name <name>                    # legacy
   dataset upload --a <version-a-dir> --b <version-b-dir> --name-a <name> --name-b <name>
   dataset list
   dataset guide
 
-  task create --name <name> --purpose <purpose> --mode gsb|review
+  task create --name <name> --purpose <purpose> --mode gsb
   task get <task-id>
   task create-gsb --name <name> --input <jsonl-dataset> --description-file ./description.md --publish
   task configure <task-id> --min-per-person auto --require-comments false --show-trace false
@@ -59,9 +59,8 @@ Commands:
 
   report status <task-id>
   report url <task-id>
-  report upload <task-id> <report-file> [report-file...]
+  report upload <task-id> ./decision_report.html ./decision_summary.json
   report download <task-id> --type html --output ./report.html
-  report review <task-id> --output ./review-feedback.json
 
   results summary <task-id> --all
   results export <task-id> --format json --output ./exports

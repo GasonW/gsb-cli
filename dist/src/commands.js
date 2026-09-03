@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, extname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ApiClient, ApiError, serverError } from "./api.js";
 import { CliUsageError, OptionReader, parseArgs, requireArg } from "./args.js";
@@ -339,8 +339,8 @@ async function cmdAuthRegister(globals) {
                 role: data.role || "evaluator",
                 next_commands: [
                     "gsb-cli auth whoami --json",
-                    "gsb-cli dataset check --input <aidp-compatible.jsonl> --json",
-                    "gsb-cli dataset upload --input <aidp-compatible.jsonl> --json",
+                    "gsb-cli dataset check --input <aidp-compatible.json|jsonl> --json",
+                    "gsb-cli dataset upload --input <aidp-compatible.json|jsonl> --json",
                 ],
             },
             exitCode: 0,
@@ -458,7 +458,7 @@ async function cmdDatasetUpload(globals, args) {
         try {
             const absolute = datasetPath(jsonlPath);
             const payload = {
-                folder_name: newName || name || basename(absolute, ".jsonl"),
+                folder_name: newName || name || basename(absolute, extname(absolute)),
                 format: "aidp-jsonl",
                 files: { [basename(absolute)]: readFileSync(absolute, "utf8") },
             };
@@ -468,7 +468,7 @@ async function cmdDatasetUpload(globals, args) {
             return {
                 payload: {
                     ok: true,
-                    message: "A/B JSONL 数据集上传完成",
+                    message: "A/B JSON/JSONL 数据集上传完成",
                     uploaded: [publicDatasetPayload("input", data)],
                     check,
                     next_commands: [

@@ -100,14 +100,16 @@ gsb-cli auth logout --json
 gsb-cli dataset check --input ./input.jsonl --json
 ```
 
-返回 `row_count`、A/B 版本名和逐行 contract 问题。
+输入支持 `.json`、`.jsonl` 和 `.ndjson`。JSON 可使用顶层数组或 `records/items` 包装；返回 `row_count`、A/B 版本名和逐条 contract 问题。可选 `traceA/traceB` 会被校验并保留。
 
 常见错误码：
-- `JSONL_FILE_NOT_FOUND` — 文件不存在
-- `JSONL_PARSE_ERROR` — 某行 JSON 解析失败
-- `JSONL_REQUIRED_FIELD_INVALID` — 必填字段缺失或为空
-- `JSONL_DUPLICATE_QUERY_ID` — queryId 重复
-- `JSONL_HEADER_INCONSISTENT` — 任务名或版本名不一致
+- `INPUT_FILE_NOT_FOUND` — 文件不存在
+- `INPUT_SUFFIX_REQUIRED` — 文件后缀不受支持
+- `INPUT_PARSE_ERROR` — JSON 或 JSONL 解析失败
+- `INPUT_REQUIRED_FIELD_INVALID` — 必填字段缺失或为空
+- `INPUT_DUPLICATE_QUERY_ID` — queryId 重复
+- `INPUT_HEADER_INCONSISTENT` — 任务名或版本名不一致
+- `INPUT_TRACE_INVALID` — Trace 不是 JSON object 字符串数组
 
 #### 上传数据集
 
