@@ -266,16 +266,17 @@ gsb-cli results export <task-id> --format json --output ./exports --json
 
 历史版本级全局评论仍位于 `comments[版本名].items`，每项包含 `feedback_type`、`comment`、`images` 等字段；`comments[版本名].pros` 和 `cons` 保留为按方向拼接的兼容文本。划线、卡片和全局评论共享 `anchored_comments` 存储，读取划线定位时应排除 `target_type: "global"` 的项。
 
-分析生成和归档是两个独立步骤。在平台仓库根目录先生成不可覆盖的 analysis run：
+分析生成和归档是两个独立步骤。具体分析阶段和门禁以平台仓库的注册工作流为准。Review 页面生成后先单独上传：
 
 ```bash
-python3 scripts/build_gsb_decision_report.py --task <task-id> --config <analysis-config.json> --no-publish
+gsb-cli report upload <task-id> <review-report-path> <case-review-draft.jsonl> --json
+gsb-cli report status <task-id> --json
 ```
 
-从命令 JSON 输出读取 `review_report`、`report`、`cqc_report` 和 `summary` 路径；确认后再上传归档。也可以查看和下载平台侧已有报告：
+用户在后续对话中明确触发正式分析报告后，再上传已确认的最终报告与摘要；CQC 仅在用户单独要求且实际生成时追加。也可以查看和下载平台侧已有报告：
 
 ```bash
-gsb-cli report upload <task-id> <review-report-path> <report-path> <cqc-report-path> <summary-path> [case-review-draft.jsonl] --json
+gsb-cli report upload <task-id> <review-report-path> <report-path> <summary-path> [cqc-report-path] --json
 gsb-cli report status <task-id> --json
 gsb-cli report download <task-id> --type html --output ./decision_report.html --json
 gsb-cli report download <task-id> --type html --file review_report.html --output ./review_report.html --json
@@ -284,7 +285,7 @@ gsb-cli report download <task-id> --type json --output ./decision_summary.json -
 gsb-cli report review <task-id> --output ./review-feedback.json --json
 ```
 
-`report upload` 会把本地 `.html`、`.json` 和 `.jsonl` 文本写入线上任务的 PostgreSQL report 记录。新生成的 `gsb-decision-v2` bundle 固定包含 Review、算法、CQC 三张 HTML 和一份 JSON 摘要；Case 问题 Review 工作流可额外上传 `case-review-draft.jsonl`，使 Review 接口同时返回不可变 AI 草稿与人工最终值。CLI 会校验固定文件名、JSONL 行结构、`source_analysis_run_id` 和 `../review/?q=` 相对题目链接。旧的两文件 v2 bundle 仍可读取与上传，但只要算法报告引用两阶段页面，就必须上传标准四件套，AI 草稿作为可选第五件。上传需要当前账号有任务管理权限。
+`report upload` 会把本地 `.html`、`.json` 和 `.jsonl` 文本写入线上任务的 PostgreSQL report 记录。Review 阶段可只上传 `review_report.html` 和 `case-review-draft.jsonl`；这一阶段不需要分析报告、摘要或 CQC。CLI 会校验文件名、JSONL 行结构，以及现有 `gsb-decision-v2` bundle 的 `source_analysis_run_id` 和 `../review/?q=` 相对题目链接。上传需要当前账号有任务管理权限。
 
 Review 报告只保留原模块 4 与筛选器，操作单元是题目。评论可标记采纳、修正或不采纳；未操作评论在保存时默认采纳，修正评论仍进入后续分析且修正说明计入 CQC 反馈，不采纳评论必须写理由且不进入分析。Pointwise 两个模型和 Overall GSB 可给出题目级最终分，改分时“我的原因”为选填；未改分默认认可当前统计来源分。问题成因直接编辑标签、主次和总结，关联人工评论为选填，不编辑问题优先级、证据状态、事实核验备注或回答证据。每题另有自由备注，可供后续 AI 分析和页面搜索。最终统计优先级为“我的终判 > 独立裁决/QC > 有效作业人员加权平均”。可见报告只展示 Overall GSB，不展示分维度 GSB。`report review` 导出题目 Review、评论状态、问题成因和题目备注，以及按题目和 Reviewer 的终判量。
 
@@ -362,7 +363,7 @@ gsb-cli task renderer upload <task-id> ./renderer.js --json
 | 发布任务 | `gsb-cli task publish <task-id>` |
 | 归档任务 | `gsb-cli task archive <task-id>` |
 | 上传 renderer | `gsb-cli task renderer upload <task-id> ./renderer.js` |
-| 上传归档报告 | `gsb-cli report upload <task-id> ./review_report.html ./decision_report.html ./cqc_report.html ./decision_summary.json` |
+| 上传当前阶段报告 | `gsb-cli report upload <task-id> <report-file> [report-file...]` |
 | 查看归档报告 | `gsb-cli report status <task-id>` |
 | 下载 HTML 报告 | `gsb-cli report download <task-id> --type html --output ./decision_report.html` |
 | 下载 JSON 摘要 | `gsb-cli report download <task-id> --type json --output ./decision_summary.json` |

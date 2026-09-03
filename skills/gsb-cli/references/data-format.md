@@ -17,6 +17,14 @@ AIDP 与 ChatBuy Eval 共用一个 JSONL。每个非空行是一个 JSON object�
 
 `queryId` 在文件内唯一，只使用字母、数字、点、下划线或连字符。`taskName` 和两个版本名在所有行中保持一致。
 
+可选 Trace 字段：
+
+- `traceA`、`traceB`：对应模型侧的 JSON object 字符串数组；
+- `traceSchemaVersion`：当前使用 `chatbuy-trace-message/v1`；
+- `showTrace`：只控制评估作业页是否展示，不控制 Trace 是否保存在数据中，也不控制 Review HTML。
+
+准备、拆分或重导出数据时，先按 query 身份和模型标签核对两侧源记录。源 Trace 可以可靠对齐时必须写入对应的 `traceA/traceB`，不得截断、串侧或因平台转换而省略；无法可靠对齐时停止写入并报告冲突。`dataset check` 前应统计两侧 Trace 覆盖率。Review HTML 由 `gsb-analysis` 的共享模板生成，对已经保存的 Trace 默认展示。
+
 ## 检查、上传和绑定
 
 ```bash

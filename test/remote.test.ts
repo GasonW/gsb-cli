@@ -917,6 +917,53 @@ test("CLI uploads archived task reports to the remote platform", async () => {
   }
 });
 
+test("CLI uploads the Review stage without final report or CQC files", async () => {
+  const seen: Array<{ method: string; path: string; body: unknown }> = [];
+  const server = createServer(async (req, res) => {
+    const body = await readJson(req);
+    seen.push({ method: req.method || "", path: req.url || "", body });
+    if (req.method === "POST" && req.url === "/tasks/task_1/api/reports") {
+      return sendJson(res, {
+        ok: true,
+        saved: Object.keys((body as { files?: Record<string, string> }).files || {}),
+        skipped: [],
+        report: {
+          exists: true,
+          review_url: "/tasks/task_1/report/review_report.html",
+        },
+      });
+    }
+    return sendJson(res, { error: "not found" }, 404);
+  });
+  await listen(server);
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const reportDir = mkdtempSync(join(tmpdir(), "gsb-cli-review-stage-upload-"));
+    const reviewFile = join(reportDir, "review_report.html");
+    const draftFile = join(reportDir, "case-review-draft.jsonl");
+    writeFileSync(reviewFile, "<html><body>Review</body></html>");
+    writeFileSync(draftFile, '{"query_id":"q-1"}\n');
+
+    const upload = await runCli([
+      "report", "upload", "task_1", "--base-url", baseUrl,
+      reviewFile, draftFile, "--json",
+    ], { env: { ...process.env, GSB_CLI_SESSION: join(tmpdir(), "unused-gsb-session.json") } });
+
+    assert.equal(upload.exitCode, 0);
+    assert.deepEqual(upload.payload.saved, ["review_report.html", "case-review-draft.jsonl"]);
+    assert.deepEqual(seen[0]?.body, {
+      files: {
+        "review_report.html": "<html><body>Review</body></html>",
+        "case-review-draft.jsonl": '{"query_id":"q-1"}\n',
+      },
+    });
+  } finally {
+    await close(server);
+  }
+});
+
 test("CLI rejects fixed task review links in a v2 decision report before upload", async () => {
   const reportDir = mkdtempSync(join(tmpdir(), "gsb-cli-report-v2-preflight-"));
   const htmlFile = join(reportDir, "decision_report.html");

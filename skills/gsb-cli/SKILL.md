@@ -29,18 +29,18 @@ gsb-cli task publish <task-id> --json
 gsb-cli results export <task-id> --format json --output ./exports --json
 ```
 
-分析完成且报告已经确认后再归档：
+生成 Review 页面后先单独归档 Review 阶段：
 
 ```bash
 gsb-cli report upload \
   <task-id> \
   <review-report-path> \
-  <decision-report-path> \
-  <cqc-report-path> \
-  <decision-summary-path> \
+  <case-review-draft-path> \
   --json
 gsb-cli report status <task-id> --json
 ```
+
+用户在后续对话中明确触发正式分析报告后，再归档最终产物；CQC 路径只在用户单独要求且实际生成时传入。
 
 优先读取每次 JSON 返回的 `next_commands`。失败时按 `issues[].next_step` 修复，再执行 `continue_after_fix.command`。
 
@@ -48,12 +48,13 @@ gsb-cli report status <task-id> --json
 
 1. 优先复用现有登录；只有确认未登录或失效时才执行 `auth login`。Session 和 CSRF 由 CLI 管理，不复制 cookie 或 token。
 2. 新 A/B 评估使用一份 AIDP-compatible `input.jsonl`。先 `dataset check`，通过后再上传。
-3. 一个业务评估只创建一个 task，不按 AIDP / ChatBuy Eval 拆 task。
-4. `task publish` 会先执行 preflight；按失败项修复，不绕过发布门禁。
-5. 平台返回的 dataset ID、task ID 和 URL 是后续步骤的事实来源，不根据名称猜测。
-6. 核心命令使用 `--json`，不解析面向人的终端文案。
-7. 报告归档必须上传同一 final run 的四件套，并在上传后用 `report status` 回读。
-8. 三模型 Review 使用 `task create --mode review`；不要把它解释成 A/B GSB。
+3. 准备或接收 `input.jsonl` 时逐侧检查源 Trace；可按题目和模型可靠对齐的 Trace 必须保留为 `traceA/traceB`，不得因上传、拆分或平台转换而静默丢失。精确格式见 `references/data-format.md`。
+4. 一个业务评估只创建一个 task，不按 AIDP / ChatBuy Eval 拆 task。
+5. `task publish` 会先执行 preflight；按失败项修复，不绕过发布门禁。
+6. 平台返回的 dataset ID、task ID 和 URL 是后续步骤的事实来源，不根据名称猜测。
+7. 核心命令使用 `--json`，不解析面向人的终端文案。
+8. Review 阶段只上传 `review_report.html` 和 Review 草稿，随后停止并等待用户在后续对话中触发正式分析；上传不改写 HTML，Review 页面应由 `gsb-analysis` 的共享模板默认展示输入中已有的 Trace。最终阶段只上传已确认且实际存在的产物。每次上传后都用 `report status` 回读。
+9. 三模型 Review 使用 `task create --mode review`；不要把它解释成 A/B GSB。
 
 ## 精确命令
 

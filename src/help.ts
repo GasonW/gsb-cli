@@ -59,7 +59,7 @@ Commands:
 
   report status <task-id>
   report url <task-id>
-  report upload <task-id> ./review_report.html ./decision_report.html ./cqc_report.html ./decision_summary.json
+  report upload <task-id> <report-file> [report-file...]
   report download <task-id> --type html --output ./report.html
   report review <task-id> --output ./review-feedback.json
 
