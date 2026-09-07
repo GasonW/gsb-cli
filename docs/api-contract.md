@@ -74,7 +74,7 @@ Dataset upload response rules:
 
 Direct browser upload may send exactly one `.json`, `.jsonl`, or `.ndjson` file as multipart form data to the same endpoint. JSON may be a top-level array or an object containing `records`/`items`; each task item keeps only its own record as `sourceText`.
 
-Optional `traceA` and `traceB` fields are arrays of JSON-serialized object strings. Invalid Trace values fail validation; valid values are preserved in canonical task input.
+When source Trace exists, `traceA` and `traceB` are required arrays of JSON-serialized `kind=message` object strings. Streaming events are removed before model-run and task-input persistence; invalid Trace values fail validation.
 Binding a different raw input over an existing task returns `TASK_INPUT_REVISION_REQUIRED` unless an intentional draft replacement is explicitly requested.
 
 For `mode=review`, multipart input uses the platform-owned `review-jsonl-v1` contract with complete
@@ -94,7 +94,7 @@ preserves it under each rubric's `meta.review_priority`; it is display-only and 
 - `agent_summary`: state, `can_publish`, and `next_command`.
 - `datasets`: data mode, available A/B/C version names, and counts.
 - `setup`: setup completion, total items, `min_per_person`, `anchor_count`, evaluator-facing task description, and eval dimensions.
-- `visibility`: `transparent_mode`, `stats`, `show_trace`, and `require_comments`.
+- `visibility`: `transparent_mode`, `stats`, `show_trace`, `report_html`, and `require_comments`. New tasks default to `show_trace=true` and `report_html=public`.
 - `progress`: evaluator count and item count.
 - `readiness`: preflight ok/failures/warnings and next command.
 - `report`: archived report status visible to the requester.
@@ -103,8 +103,9 @@ preserves it under each rubric's `meta.review_priority`; it is display-only and 
 
 - `files` object, required. Keys are report file names and values are text content.
 - Accepted file suffixes are `.html`, `.json`, and `.jsonl`; JSONL files must contain one valid JSON object per non-empty line.
-- Reports are stored in PostgreSQL `legacy_reports` and discovered by task ID. `report status` returns `report_dir: "database://legacy_reports"` and `source: "database"`; callers must not infer a server filesystem path.
+- Reports are stored in PostgreSQL `legacy_reports` and discovered by task ID. `report status` returns `report_dir: "database://legacy_reports"` and `source: "database"`; callers must not infer a server filesystem path. Uploaded Review and report HTML URLs are public by default; upload, metadata, and non-HTML reads remain authenticated.
 - The Review stage may upload only `review_report.html` and `case-review-draft.jsonl`; it stops before any final analysis or CQC artifact exists. Existing `gsb-decision-v2` bundles remain supported, and the CLI still requires their complete four-file bundle when the algorithm report links both Review and CQC stages, requires `source_analysis_run_id`, and rejects task-review links that are not relative `../review/?q=<query-id>`.
+- Review, final-report, and task pages reuse the platform evidence components. Saved Trace is collapsed between Query and the answer; product placeholders render either complete product cards or explicit error cards, and every card exposes its response XML through a collapsed `[原文]` action. The CLI uploads generated artifacts without reimplementing this rendering contract.
 - The v2 HTML is an evaluation-analysis surface, not a launch-decision surface: it uses real model version names; separates question scope from annotation-record processing; reports question-level Pointwise mean/zero/`>=2` rates; reports G/S/B plus both win rates excluding Same; and translates 95% intervals into a significance/stability statement. Raw rating-record distributions, protocol, run id, checksum, and launch recommendations are not reader-visible HTML fields; they may remain in the JSON/audit lineage.
 - Report attachment links use `GET /tasks/<task-id>/artifacts/download?path=<workspace-relative-path>`. The endpoint requires the same task/statistics permission as the report and only accepts files resolved from the task source reference, model-run manifests, benchmark manifests, or task raw-result directories. It returns `Content-Disposition: attachment`; arbitrary workspace paths return 404.
 - Report status keeps `aggregate_dir`, `html_sources`, and `json_sources` as empty compatibility fields.

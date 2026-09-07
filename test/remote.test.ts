@@ -604,7 +604,8 @@ test("task create-gsb runs create bind setup config and preflight with defaults"
     assert.deepEqual(config.visibility, {
       transparent_mode: "admin_only",
       stats: "admin_only",
-      show_trace: false,
+      show_trace: true,
+      report_html: "public",
       require_comments: false,
     });
   } finally {

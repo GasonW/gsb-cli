@@ -158,7 +158,7 @@ gsb-cli task create-gsb \
 - `--purpose`：任务目的或备注（给创建者和管理员看，不是给评估者看的任务说明）
 - `--input`：统一 JSONL 数据集 id 或名称
 - 返回 `task.id` 和 `agent_summary`，后续命令均需此 ID
-- 默认 `min_per_person` 为共同题数的 15%，最小 10；默认锚点题数量为 `min_per_person` 的 10%，最小 3；默认 `show_trace=false` 只控制评估作业页，不删除输入中的 Trace，也不控制 Review HTML
+- 默认 `min_per_person` 为共同题数的 15%，最小 10；默认锚点题数量为 `min_per_person` 的 10%，最小 3；默认 `show_trace=true` 只控制评估作业页，不控制 Review HTML
 
 #### 创建三模型 Review 任务
 
@@ -190,14 +190,15 @@ gsb-cli task configure <task-id> \
   --require-comments false \
   --transparent-mode admin_only \
   --stats admin_only \
-  --show-trace false \
+  --show-trace true \
   --json
 ```
 
 - `--min-per-person auto`：共同题数的 15%，最小 10，不能超过共同题数；传 `0` 表示全量
 - `--anchor-count auto`：`min_per_person` 的 10%，最小 3，不能超过可用题数
 - `--description-file`：评估说明 markdown 文件
-- `--show-trace`：默认 `false`
+- `--show-trace`：默认 `true`
+- `--report-html`：默认 `public`；可设 `authenticated` 或 `admin_only`
 
 `task configure` 会按参数组合保存分配策略和 visibility，并运行 preflight。底层 `task setup` / `task config` 只在需要精细拆步时使用。
 
@@ -205,7 +206,7 @@ gsb-cli task configure <task-id> \
 gsb-cli task config <task-id> \
   --transparent-mode admin_only \
   --stats admin_only \
-  --show-trace false \
+  --show-trace true \
   --require-comments false \
   --json
 ```
@@ -324,7 +325,7 @@ gsb-cli report download <task-id> --type html --output ./report.html --json
 gsb-cli report review <task-id> --output ./review-feedback.json --json
 ```
 
-Review 从 `report status` 返回的 `urls.review` 启动。只有用户在后续对话中明确触发，才按 platform 主工作流生成最终分析报告，并按实际产物再次上传。
+Review 从 `report status` 返回的 `urls.review` 启动。Review、最终报告和评估页复用平台共享证据组件：已有 Trace 默认折叠在 Query 与正式答案之间；商品卡占位符呈现有效卡或显式错误卡片，所有卡均可展开 response 原始 XML。只有用户在后续对话中明确触发，才按 platform 主工作流生成最终分析报告，并按实际产物再次上传。
 
 ---
 

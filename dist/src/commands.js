@@ -701,7 +701,8 @@ async function cmdTaskCreateGsb(globals, args) {
     const anchorCountRaw = parseOptionalNumberOrAuto("anchor-count", reader.takeOptionalString("anchor-count"));
     const transparentMode = reader.takeString("transparent-mode", "admin_only");
     const stats = reader.takeString("stats", "admin_only");
-    const showTrace = reader.takeBoolean("show-trace") ?? false;
+    const showTrace = reader.takeBoolean("show-trace") ?? true;
+    const reportHtml = reader.takeString("report-html", "public");
     const requireComments = reader.takeBoolean("require-comments") ?? false;
     const publish = reader.takeFlag("publish");
     reader.requireNoUnknown();
@@ -742,6 +743,7 @@ async function cmdTaskCreateGsb(globals, args) {
                 transparent_mode: transparentMode,
                 stats,
                 show_trace: showTrace,
+                report_html: reportHtml,
                 require_comments: requireComments,
             },
         });
@@ -800,6 +802,7 @@ async function cmdTaskConfigure(globals, args) {
     const transparentMode = reader.takeOptionalString("transparent-mode");
     const stats = reader.takeOptionalString("stats");
     const showTrace = reader.takeBoolean("show-trace");
+    const reportHtml = reader.takeOptionalString("report-html");
     const requireComments = reader.takeBoolean("require-comments");
     const publish = reader.takeFlag("publish");
     reader.requireNoUnknown();
@@ -811,11 +814,13 @@ async function cmdTaskConfigure(globals, args) {
         visibility.stats = stats;
     if (showTrace !== undefined)
         visibility.show_trace = showTrace;
+    if (reportHtml !== undefined)
+        visibility.report_html = reportHtml;
     if (requireComments !== undefined)
         visibility.require_comments = requireComments;
     const configRequested = Object.keys(visibility).length > 0;
     if (!setupRequested && !configRequested && !publish) {
-        const item = issue("NO_CONFIGURE_FIELDS", "error", "task configure 命令缺少要更新的字段", {}, "空配置不会改变任务行为。", "传入题量、说明、锚点、评论必填、透明模式、统计权限或 trace 展示等配置。", redactedArgv(globals.rawArgv));
+        const item = issue("NO_CONFIGURE_FIELDS", "error", "task configure 命令缺少要更新的字段", {}, "空配置不会改变任务行为。", "传入题量、说明、锚点、评论必填、透明模式、统计权限、trace 展示或报告 HTML 可见性等配置。", redactedArgv(globals.rawArgv));
         return { payload: { ok: false, message: "没有提供任何配置", issues: [item] }, exitCode: 1 };
     }
     const client = await buildClient(globals);
@@ -920,7 +925,7 @@ async function cmdTaskSetup(globals, args) {
                 anchor_items_count: setupEffects.anchor_items_count,
                 anchor_count_source: anchorCount === undefined || anchorCount === "auto" ? "platform_default" : "cli --anchor-count",
             }, "平台会在 setup 时生成 anchor_items；未传 --anchor-count 时，平台按固定规则从共同题中抽样。evaluator_order 会随评估者首次进入继续更新。", "如需控制锚点数量，重新运行 task setup 并传入 --anchor-count；如当前策略符合预期，继续 task config。"),
-            issue("TASK_VISIBILITY_CONFIG_SEPARATE", "warning", "可见性和评论必填配置需要单独运行 task config", { fields: ["transparent_mode", "stats", "show_trace", "require_comments"] }, "task setup 只保存任务说明和分配策略；require_comments、transparent_mode、stats、show_trace 属于权限/展示配置。", `按任务要求运行 gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false --json，然后再 preflight。`, `gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false --json`),
+            issue("TASK_VISIBILITY_CONFIG_SEPARATE", "warning", "可见性和评论必填配置需要单独运行 task config", { fields: ["transparent_mode", "stats", "show_trace", "report_html", "require_comments"] }, "task setup 只保存任务说明和分配策略；require_comments、transparent_mode、stats、show_trace、report_html 属于权限/展示配置。", `按任务要求运行 gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace true --report-html public --require-comments false --json，然后再 preflight。`, `gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace true --report-html public --require-comments false --json`),
         ];
         if (evalDimensions.length) {
             warnings.push(issue("SETUP_EVAL_DIMENSIONS_PRESENT", "warning", "平台返回了额外评估维度", { eval_dimensions: evalDimensions }, "平台可能根据数据内容或版本名推断 product_presentation、shopping_guidance_quality 等任务维度；这会影响评估页展示和结果解释。", "确认这些维度符合本次任务；如果不符合，需要在平台侧调整任务配置或重新 setup。"));
@@ -933,7 +938,7 @@ async function cmdTaskSetup(globals, args) {
                 setup_effects: setupEffects,
                 warnings,
                 next_commands: [
-                    `gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false --json`,
+                    `gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace true --report-html public --require-comments false --json`,
                     `gsb-cli task preflight ${taskId} --json`,
                     `gsb-cli task publish ${taskId} --json`,
                 ],
@@ -954,6 +959,7 @@ async function cmdTaskConfig(globals, args) {
     const transparentMode = reader.takeOptionalString("transparent-mode");
     const stats = reader.takeOptionalString("stats");
     const showTrace = reader.takeBoolean("show-trace");
+    const reportHtml = reader.takeOptionalString("report-html");
     const requireComments = reader.takeBoolean("require-comments");
     reader.requireNoUnknown();
     if (transparentMode !== undefined)
@@ -962,10 +968,12 @@ async function cmdTaskConfig(globals, args) {
         visibility.stats = stats;
     if (showTrace !== undefined)
         visibility.show_trace = showTrace;
+    if (reportHtml !== undefined)
+        visibility.report_html = reportHtml;
     if (requireComments !== undefined)
         visibility.require_comments = requireComments;
     if (!Object.keys(visibility).length) {
-        const item = issue("NO_CONFIG_FIELDS", "error", "task config 命令缺少要更新的字段", {}, "空配置不会改变任务行为。", "传入 --transparent-mode、--stats、--show-trace 或 --require-comments。", redactedArgv(globals.rawArgv));
+        const item = issue("NO_CONFIG_FIELDS", "error", "task config 命令缺少要更新的字段", {}, "空配置不会改变任务行为。", "传入 --transparent-mode、--stats、--show-trace、--report-html 或 --require-comments。", redactedArgv(globals.rawArgv));
         return { payload: { ok: false, message: "没有提供任何权限配置", issues: [item] }, exitCode: 1 };
     }
     const client = await buildClient(globals);

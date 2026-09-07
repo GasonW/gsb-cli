@@ -170,7 +170,7 @@ NestJS/PostgreSQL 部署会对 API 启用 double-submit CSRF。CLI 会在登录�
 准备一份与 AIDP 相同格式的 A/B JSON 或 JSONL。JSON 可使用数组或 `records/items` 包装，JSONL 一行就是一道题；至少包含
 `taskName/queryId/query/versionAName/versionBName/responseA/responseB/productCardsA/productCardsB`。
 
-可选的 `traceA`、`traceB` 必须是 JSON object 字符串数组。CLI 会校验 Trace，并在规范化后的任务输入中保留有效内容。
+源跑测存在 Trace 时，`traceA`、`traceB` 必须是完成态 `kind=message` JSON object 字符串数组。流式事件在源 model run 与任务输入写入前清除。
 
 ```text
 input.jsonl
@@ -234,7 +234,7 @@ gsb-cli task configure <task-id> \
   --require-comments false \
   --transparent-mode admin_only \
   --stats admin_only \
-  --show-trace false \
+  --show-trace true \
   --json
 ```
 
@@ -247,7 +247,8 @@ gsb-cli task configure <task-id> \
 | `--description` / `--description-file` | `task create-gsb` / `task configure` | 给评估者看的任务说明 |
 | `--transparent-mode` | `task create-gsb` / `task configure` | 版本名可见性，常用 `admin_only` |
 | `--stats` | `task create-gsb` / `task configure` | 统计面板可见性，常用 `admin_only` |
-| `--show-trace` | `task create-gsb` / `task configure` | 是否展示 trace，默认 `false` |
+| `--show-trace` | `task create-gsb` / `task configure` | 是否展示 trace，默认 `true` |
+| `--report-html` | `task create-gsb` / `task configure` | Review 与报告 HTML 可见性，默认 `public`；可设 `authenticated` 或 `admin_only` |
 | `--require-comments` | `task create-gsb` / `task configure` | 是否强制评论必填，默认 `false` |
 
 底层命令 `task create`、`task bind`、`task setup`、`task config` 仍可用于精细控制。Agent 常规使用应优先走 `task create-gsb` 和 `task configure`，避免漏配评论、透明模式、统计权限或 trace 展示。
@@ -290,7 +291,7 @@ gsb-cli report download <task-id> --type json --output ./decision_summary.json -
 gsb-cli report review <task-id> --output ./review-feedback.json --json
 ```
 
-`report upload` 会把本地 `.html`、`.json` 和 `.jsonl` 文本写入线上任务的 PostgreSQL report 记录。Review 阶段可只上传 `review_report.html` 和 `case-review-draft.jsonl`；这一阶段不需要分析报告、摘要或 CQC。CLI 会校验文件名、JSONL 行结构，以及现有 `gsb-decision-v2` bundle 的 `source_analysis_run_id` 和 `../review/?q=` 相对题目链接。上传需要当前账号有任务管理权限。
+`report upload` 会把本地 `.html`、`.json` 和 `.jsonl` 文本写入线上任务的 PostgreSQL report 记录。Review 阶段可只上传 `review_report.html` 和 `case-review-draft.jsonl`；这一阶段不需要分析报告、摘要或 CQC。上传后的 Review 与报告 HTML 默认使用公开 URL；上传、元数据和非 HTML 文件仍需要登录。Review、最终报告与评估页复用平台共享证据组件：已有 Trace 默认折叠在 Query 与正式答案之间；回答中的有效商品卡、错误卡片及其可展开原始 XML 均由同一组件渲染。CLI 会校验文件名、JSONL 行结构，以及现有 `gsb-decision-v2` bundle 的 `source_analysis_run_id` 和 `../review/?q=` 相对题目链接。上传需要当前账号有任务管理权限。
 
 Review 报告只保留原模块 4 与筛选器，操作单元是题目。评论可标记采纳、修正或不采纳；未操作评论在保存时默认采纳，修正评论仍进入后续分析且修正说明计入 CQC 反馈，不采纳评论必须写理由且不进入分析。Pointwise 两个模型和 Overall GSB 可给出题目级最终分，改分时“我的原因”为选填；未改分默认认可当前统计来源分。问题成因直接编辑标签、主次和总结，关联人工评论为选填，不编辑问题优先级、证据状态、事实核验备注或回答证据。每题另有自由备注，可供后续 AI 分析和页面搜索。最终统计优先级为“我的终判 > 独立裁决/QC > 有效作业人员加权平均”。可见报告只展示 Overall GSB，不展示分维度 GSB。`report review` 导出题目 Review、评论状态、问题成因和题目备注，以及按题目和 Reviewer 的终判量。
 
@@ -359,11 +360,11 @@ gsb-cli task renderer upload <task-id> ./renderer.js --json
 | 查看数据集 | `gsb-cli dataset list` |
 | 一站式创建任务 | `gsb-cli task create-gsb --name "candidate vs baseline" --purpose "评估 candidate 相比 baseline 的回答质量和上线风险" --input <jsonl-dataset-id>` |
 | 查看任务状态 | `gsb-cli task get <task-id>` |
-| 修改任务配置 | `gsb-cli task configure <task-id> --min-per-person auto --require-comments false --show-trace false` |
+| 修改任务配置 | `gsb-cli task configure <task-id> --min-per-person auto --require-comments false --show-trace true` |
 | 底层创建任务 | `gsb-cli task create --name "candidate vs baseline" --purpose "评估 candidate 相比 baseline 的回答质量和上线风险"` |
 | 绑定数据 | `gsb-cli task bind <task-id> --input <jsonl-dataset-id>` |
 | 底层配置任务 | `gsb-cli task setup <task-id> --min-per-person auto` |
-| 底层配置权限/评论 | `gsb-cli task config <task-id> --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false` |
+| 底层配置权限/评论 | `gsb-cli task config <task-id> --transparent-mode admin_only --stats admin_only --show-trace true --require-comments false` |
 | 发布前检查 | `gsb-cli task preflight <task-id>` |
 | 发布任务 | `gsb-cli task publish <task-id>` |
 | 归档任务 | `gsb-cli task archive <task-id>` |

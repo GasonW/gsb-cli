@@ -772,7 +772,8 @@ async function cmdTaskCreateGsb(globals: CliGlobals, args: string[]): Promise<Cl
   const anchorCountRaw = parseOptionalNumberOrAuto("anchor-count", reader.takeOptionalString("anchor-count"));
   const transparentMode = reader.takeString("transparent-mode", "admin_only");
   const stats = reader.takeString("stats", "admin_only");
-  const showTrace = reader.takeBoolean("show-trace") ?? false;
+  const showTrace = reader.takeBoolean("show-trace") ?? true;
+  const reportHtml = reader.takeString("report-html", "public");
   const requireComments = reader.takeBoolean("require-comments") ?? false;
   const publish = reader.takeFlag("publish");
   reader.requireNoUnknown();
@@ -813,6 +814,7 @@ async function cmdTaskCreateGsb(globals: CliGlobals, args: string[]): Promise<Cl
         transparent_mode: transparentMode,
         stats,
         show_trace: showTrace,
+        report_html: reportHtml,
         require_comments: requireComments,
       },
     });
@@ -878,6 +880,7 @@ async function cmdTaskConfigure(globals: CliGlobals, args: string[]): Promise<Cl
   const transparentMode = reader.takeOptionalString("transparent-mode");
   const stats = reader.takeOptionalString("stats");
   const showTrace = reader.takeBoolean("show-trace");
+  const reportHtml = reader.takeOptionalString("report-html");
   const requireComments = reader.takeBoolean("require-comments");
   const publish = reader.takeFlag("publish");
   reader.requireNoUnknown();
@@ -887,6 +890,7 @@ async function cmdTaskConfigure(globals: CliGlobals, args: string[]): Promise<Cl
   if (transparentMode !== undefined) visibility.transparent_mode = transparentMode;
   if (stats !== undefined) visibility.stats = stats;
   if (showTrace !== undefined) visibility.show_trace = showTrace;
+  if (reportHtml !== undefined) visibility.report_html = reportHtml;
   if (requireComments !== undefined) visibility.require_comments = requireComments;
   const configRequested = Object.keys(visibility).length > 0;
   if (!setupRequested && !configRequested && !publish) {
@@ -896,7 +900,7 @@ async function cmdTaskConfigure(globals: CliGlobals, args: string[]): Promise<Cl
       "task configure 命令缺少要更新的字段",
       {},
       "空配置不会改变任务行为。",
-      "传入题量、说明、锚点、评论必填、透明模式、统计权限或 trace 展示等配置。",
+      "传入题量、说明、锚点、评论必填、透明模式、统计权限、trace 展示或报告 HTML 可见性等配置。",
       redactedArgv(globals.rawArgv),
     );
     return { payload: { ok: false, message: "没有提供任何配置", issues: [item] }, exitCode: 1 };
@@ -1013,10 +1017,10 @@ async function cmdTaskSetup(globals: CliGlobals, args: string[]): Promise<CliRes
         "TASK_VISIBILITY_CONFIG_SEPARATE",
         "warning",
         "可见性和评论必填配置需要单独运行 task config",
-        { fields: ["transparent_mode", "stats", "show_trace", "require_comments"] },
-        "task setup 只保存任务说明和分配策略；require_comments、transparent_mode、stats、show_trace 属于权限/展示配置。",
-        `按任务要求运行 gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false --json，然后再 preflight。`,
-        `gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false --json`,
+        { fields: ["transparent_mode", "stats", "show_trace", "report_html", "require_comments"] },
+        "task setup 只保存任务说明和分配策略；require_comments、transparent_mode、stats、show_trace、report_html 属于权限/展示配置。",
+        `按任务要求运行 gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace true --report-html public --require-comments false --json，然后再 preflight。`,
+        `gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace true --report-html public --require-comments false --json`,
       ),
     ];
     if (evalDimensions.length) {
@@ -1037,7 +1041,7 @@ async function cmdTaskSetup(globals: CliGlobals, args: string[]): Promise<CliRes
         setup_effects: setupEffects,
         warnings,
         next_commands: [
-          `gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false --json`,
+          `gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace true --report-html public --require-comments false --json`,
           `gsb-cli task preflight ${taskId} --json`,
           `gsb-cli task publish ${taskId} --json`,
         ],
@@ -1057,11 +1061,13 @@ async function cmdTaskConfig(globals: CliGlobals, args: string[]): Promise<CliRe
   const transparentMode = reader.takeOptionalString("transparent-mode");
   const stats = reader.takeOptionalString("stats");
   const showTrace = reader.takeBoolean("show-trace");
+  const reportHtml = reader.takeOptionalString("report-html");
   const requireComments = reader.takeBoolean("require-comments");
   reader.requireNoUnknown();
   if (transparentMode !== undefined) visibility.transparent_mode = transparentMode;
   if (stats !== undefined) visibility.stats = stats;
   if (showTrace !== undefined) visibility.show_trace = showTrace;
+  if (reportHtml !== undefined) visibility.report_html = reportHtml;
   if (requireComments !== undefined) visibility.require_comments = requireComments;
   if (!Object.keys(visibility).length) {
     const item = issue(
@@ -1070,7 +1076,7 @@ async function cmdTaskConfig(globals: CliGlobals, args: string[]): Promise<CliRe
       "task config 命令缺少要更新的字段",
       {},
       "空配置不会改变任务行为。",
-      "传入 --transparent-mode、--stats、--show-trace 或 --require-comments。",
+      "传入 --transparent-mode、--stats、--show-trace、--report-html 或 --require-comments。",
       redactedArgv(globals.rawArgv),
     );
     return { payload: { ok: false, message: "没有提供任何权限配置", issues: [item] }, exitCode: 1 };
