@@ -1,5 +1,6 @@
 import {strict as assert} from 'node:assert';
 import {test} from 'node:test';
+import {createHash} from 'node:crypto';
 import {mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -59,4 +60,20 @@ test('large attachment download restores and verifies original bytes instead of 
   clicked=false;link.dataset.artifactSha256='bad';await handler(event);
   assert.equal(clicked,false);assert.equal(link.textContent,'下载失败，点击重试');
  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+
+test('bundles lazy report evidence with a verified content address', () => {
+ const root=mkdtempSync(join(tmpdir(),'report-evidence-'));
+ try {
+  mkdirSync(join(root,'tasks'));
+  const content=JSON.stringify({response:'完整回答',trace_summary:{steps:[]}});
+  writeFileSync(join(root,'tasks','panel.json'),content);
+  const digest=createHash('sha256').update(content).digest('hex');
+  const html=`<a hidden class="report-evidence-source" data-workspace-path="tasks/panel.json" data-sha256="${digest}"></a>`;
+  const bundle=bundleReportArtifacts(html,'/tmp/report.html',root);
+  assert.equal(bundle.files[`evidence-${digest}.json`],content);
+  assert.ok(bundle.html.includes(`data-web-href="./evidence-${digest}.json"`));
+  assert.throws(()=>bundleReportArtifacts(html.replace(digest,'0'.repeat(64)),'/tmp/report.html',root),/checksum/);
+ } finally {rmSync(root,{recursive:true,force:true});}
 });
