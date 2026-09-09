@@ -13,7 +13,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { JsonObject } from "./types.js";
 
-export const SKILL_NAME = "gsb-eval";
+export const SKILL_NAME = "gsb-cli";
 
 export type SkillTarget = "codex" | "cursor" | "all";
 export type SkillInstallMode = "copy" | "symlink";

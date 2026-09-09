@@ -47,7 +47,7 @@ test("dataset check accepts a JSON records wrapper with Trace", () => {
   const root = mkdtempSync(join(tmpdir(), "gsb-cli-json-"));
   const input = join(root, "input.json");
   const row = aidpRow("q-1") as Record<string, unknown>;
-  row.traceA = [JSON.stringify({ type: "tool_call", name: "search" })];
+  row.traceA = [JSON.stringify({ kind: "message", type: "tool_call", name: "search" })];
   row.traceB = [];
   writeFileSync(input, JSON.stringify({ records: [row] }));
 
@@ -62,6 +62,21 @@ test("dataset check rejects non-serialized Trace events", () => {
   const input = join(root, "input.json");
   const row = aidpRow("q-1") as Record<string, unknown>;
   row.traceA = [{ type: "tool_call" }];
+  writeFileSync(input, JSON.stringify([row]));
+
+  const payload = jsonlCheckPayload(input, "gsb-cli dataset check --input input.json");
+  const issues = payload.issues as Array<Record<string, unknown>>;
+
+  assert.equal(payload.ok, false);
+  assert.equal(issues.some((item) => item.code === "INPUT_TRACE_INVALID"), true);
+});
+
+test("dataset check rejects streaming Trace events", () => {
+  const root = mkdtempSync(join(tmpdir(), "gsb-cli-json-"));
+  const input = join(root, "input.json");
+  const row = aidpRow("q-1") as Record<string, unknown>;
+  row.traceA = [JSON.stringify({ kind: "stream_event", data: { delta: "partial" } })];
+  row.traceB = [];
   writeFileSync(input, JSON.stringify([row]));
 
   const payload = jsonlCheckPayload(input, "gsb-cli dataset check --input input.json");

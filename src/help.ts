@@ -46,10 +46,10 @@ Commands:
   task create --name <name> --purpose <purpose> --mode gsb
   task get <task-id>
   task create-gsb --name <name> --input <jsonl-dataset> --description-file ./description.md --publish
-  task configure <task-id> --min-per-person auto --require-comments false --show-trace false
+  task configure <task-id> --min-per-person auto --require-comments false --show-trace true --report-html public
   task bind <task-id> --input <jsonl-dataset-id-or-name>
   task setup <task-id> --name <name> --description-file ./description.md --min-per-person auto
-  task config <task-id> --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false
+  task config <task-id> --transparent-mode admin_only --stats admin_only --show-trace true --report-html public --require-comments false
   task renderer status <task-id>
   task renderer upload <task-id> ./renderer.js
   task renderer clear <task-id>
@@ -59,8 +59,10 @@ Commands:
 
   report status <task-id>
   report url <task-id>
-  report upload <task-id> ./decision_report.html ./decision_summary.json
+  report upload <task-id> ./decision_report.html ./decision_summary.json [--workspace-root <workspace>]
   report download <task-id> --type html --output ./report.html
+
+  报告 HTML 由 gsb-analysis 生成；Review、最终报告和任务页复用共享 Trace 与商品卡证据组件。
 
   results summary <task-id> --all
   results export <task-id> --format json --output ./exports

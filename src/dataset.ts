@@ -124,8 +124,8 @@ export function jsonlCheckPayload(inputPath: string, continueCommand: string): J
     for (const key of ["traceA", "traceB"]) {
       if (!(key in row)) continue;
       const trace = row[key];
-      if (!Array.isArray(trace) || trace.some((event) => typeof event !== "string" || !isJsonObjectString(event))) {
-        issues.push(issue("INPUT_TRACE_INVALID", "error", `${location} ${key} 必须是 JSON 字符串数组`, { location, field: key }, "Trace 事件按 AIDP 列表字段 contract 传输。", "每个事件使用 JSON.stringify 后的 object；无 Trace 时省略字段或传 []。", continueCommand));
+      if (!Array.isArray(trace) || trace.some((event) => typeof event !== "string" || !isCompletedTraceEventString(event))) {
+        issues.push(issue("INPUT_TRACE_INVALID", "error", `${location} ${key} 必须只包含完成态 message`, { location, field: key }, "流式输出不进入评估数据。", "清除 stream_event 等流式事件，每项保留为 JSON.stringify 后的 kind=message object。", continueCommand));
       }
     }
     const current = [String(row.taskName).trim(), String(row.versionAName).trim(), String(row.versionBName).trim()];
@@ -146,6 +146,15 @@ export function jsonlCheckPayload(inputPath: string, continueCommand: string): J
 function isJsonObjectString(value: string): boolean {
   try {
     return isPlainObject(JSON.parse(value));
+  } catch {
+    return false;
+  }
+}
+
+function isCompletedTraceEventString(value: string): boolean {
+  try {
+    const parsed = JSON.parse(value);
+    return isPlainObject(parsed) && parsed.kind === "message";
   } catch {
     return false;
   }

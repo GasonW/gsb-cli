@@ -1,3 +1,4 @@
+import { bundleReportArtifacts } from "./report-artifacts.js";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -7,7 +8,7 @@ import { datasetCheckPayload, datasetPath, FORMAT_GUIDANCE, inspectDatasetDir, j
 import { HELP_TEXT } from "./help.js";
 import { hasErrors, issue, redactedArgv } from "./issues.js";
 import { clearSession, expandHome, loadSessions, saveSession, sessionPath } from "./session.js";
-import { installSkill, skillInfo, skillTargets, uninstallSkill, type SkillInstallMode, type SkillTarget } from "./skill.js";
+import { installSkill, SKILL_NAME, skillInfo, skillTargets, uninstallSkill, type SkillInstallMode, type SkillTarget } from "./skill.js";
 import type { CliGlobals, CliResult, DatasetInfo, JsonObject, SessionData } from "./types.js";
 import { checkForUpdate, CLI_VERSION, DEFAULT_BASE_URL } from "./version.js";
 
@@ -99,6 +100,7 @@ async function dispatch(globals: CliGlobals, args: string[]): Promise<CliResult>
     if (subcommand === "url") return cmdReportStatus(globals, rest);
     if (subcommand === "upload") return cmdReportUpload(globals, rest);
     if (subcommand === "download") return cmdReportDownload(globals, rest);
+    if (subcommand === "review") return cmdReportReview(globals, rest);
   }
   if (command === "results") {
     if (subcommand === "summary") return cmdResultsSummary(globals, rest);
@@ -111,6 +113,7 @@ async function cmdDoctor(globals: CliGlobals): Promise<CliResult> {
   const client = await buildClient(globals, { autoLogin: false });
   try {
     const user = await client.request<JsonObject>("GET", "/api/auth/me");
+    persistClientSession(globals, client, user);
     return {
       payload: {
         ok: true,
@@ -119,6 +122,7 @@ async function cmdDoctor(globals: CliGlobals): Promise<CliResult> {
         base_url: client.baseUrl,
         reachable: true,
         auth: "valid",
+        auth_protocol: client.csrfToken ? "suda-double-submit-csrf" : "legacy-session-cookie",
         user,
       },
       exitCode: 0,
@@ -133,6 +137,7 @@ async function cmdDoctor(globals: CliGlobals): Promise<CliResult> {
           base_url: client.baseUrl,
           reachable: true,
           auth: "required",
+          auth_protocol: client.csrfToken ? "suda-double-submit-csrf" : "legacy-session-cookie",
         },
         exitCode: 0,
       };
@@ -193,7 +198,7 @@ function cmdSkillStatus(globals: CliGlobals, args: string[]): CliResult {
       ok: true,
       message: "skill 安装状态",
       skill: {
-        name: "gsb-eval",
+        name: SKILL_NAME,
         targets: skillTargets(target, globals.env).map((item) => skillInfo(item.target, globals.env)),
       },
     },
@@ -288,6 +293,8 @@ async function cmdAuthLogin(globals: CliGlobals): Promise<CliResult> {
       username: String(data.username || username),
       role: String(data.role || ""),
       session_token: client.sessionToken,
+      csrf_token: client.csrfToken,
+      web_did: client.webDid,
     });
     const payload: JsonObject = {
       ok: true,
@@ -297,6 +304,7 @@ async function cmdAuthLogin(globals: CliGlobals): Promise<CliResult> {
       username: data.username,
       role: data.role,
       force_change_pw: Boolean(data.force_change_pw),
+      auth_protocol: client.csrfToken ? "suda-double-submit-csrf" : "legacy-session-cookie",
       next_commands: [
         "gsb-cli dataset list",
         "gsb-cli task create --name <task-name> --purpose <task-purpose>",
@@ -360,6 +368,8 @@ async function cmdAuthRegister(globals: CliGlobals): Promise<CliResult> {
       username: String(data.username || username),
       role: String(data.role || ""),
       session_token: client.sessionToken,
+      csrf_token: client.csrfToken,
+      web_did: client.webDid,
     });
     return {
       payload: {
@@ -371,8 +381,8 @@ async function cmdAuthRegister(globals: CliGlobals): Promise<CliResult> {
         role: data.role || "evaluator",
         next_commands: [
           "gsb-cli auth whoami --json",
-          "gsb-cli dataset check --input <aidp-compatible.jsonl> --json",
-          "gsb-cli dataset upload --input <aidp-compatible.jsonl> --json",
+          "gsb-cli dataset check --input <aidp-compatible.json|jsonl> --json",
+          "gsb-cli dataset upload --input <aidp-compatible.json|jsonl> --json",
         ],
       },
       exitCode: 0,
@@ -402,7 +412,17 @@ async function cmdAuthWhoami(globals: CliGlobals): Promise<CliResult> {
   const client = await buildClient(globals);
   try {
     const data = await client.request<JsonObject>("GET", "/api/auth/me");
-    return { payload: { ok: true, message: "当前 session 可用", base_url: client.baseUrl, user: data }, exitCode: 0 };
+    persistClientSession(globals, client, data);
+    return {
+      payload: {
+        ok: true,
+        message: "当前 session 可用",
+        base_url: client.baseUrl,
+        auth_protocol: client.csrfToken ? "suda-double-submit-csrf" : "legacy-session-cookie",
+        user: data,
+      },
+      exitCode: 0,
+    };
   } catch (error) {
     if (error instanceof ApiError) {
       return apiFailurePayload(error, "读取当前登录用户", globals, "gsb-cli auth login --username <user>");
@@ -511,7 +531,7 @@ async function cmdDatasetUpload(globals: CliGlobals, args: string[]): Promise<Cl
       };
     } catch (error) {
       if (error instanceof ApiError) {
-        return datasetUploadFailurePayload(error, globals) ?? apiFailurePayload(error, "上传 JSON/JSONL 数据集", globals);
+        return datasetUploadFailurePayload(error, globals) ?? apiFailurePayload(error, "上传 JSONL 数据集", globals);
       }
       throw error;
     }
@@ -603,8 +623,8 @@ async function cmdTaskCreate(globals: CliGlobals, args: string[]): Promise<CliRe
   if (!name.trim()) {
     throw new CliUsageError("task create requires --name");
   }
-  if (!["gsb", "preview"].includes(mode)) {
-    throw new CliUsageError("--mode must be gsb or preview");
+  if (!["gsb", "review", "preview"].includes(mode)) {
+    throw new CliUsageError("--mode must be gsb, review, or preview");
   }
   const client = await buildClient(globals);
   try {
@@ -619,7 +639,13 @@ async function cmdTaskCreate(globals: CliGlobals, args: string[]): Promise<CliRe
           manage: `${client.baseUrl}/tasks/${task.id}/manage/`,
           evaluate: `${client.baseUrl}/tasks/${task.id}/`,
         },
-        next_commands: [
+        next_steps: mode === "review" ? [
+          "Open urls.manage and upload one A/B/C Review JSONL; CLI dataset upload/bind currently validates the A/B AIDP contract only.",
+          "Review evaluators score each A/B/C response on 0/1/2/3 and may add a per-response global comment; no GSB verdict is collected.",
+        ] : [],
+        next_commands: mode === "review" ? [
+          `gsb-cli task preflight ${task.id} --json`,
+        ] : [
           `gsb-cli task bind ${task.id} --input <jsonl-dataset>`,
           `gsb-cli task setup ${task.id} --min-per-person 0`,
         ],
@@ -747,7 +773,8 @@ async function cmdTaskCreateGsb(globals: CliGlobals, args: string[]): Promise<Cl
   const anchorCountRaw = parseOptionalNumberOrAuto("anchor-count", reader.takeOptionalString("anchor-count"));
   const transparentMode = reader.takeString("transparent-mode", "admin_only");
   const stats = reader.takeString("stats", "admin_only");
-  const showTrace = reader.takeBoolean("show-trace") ?? false;
+  const showTrace = reader.takeBoolean("show-trace") ?? true;
+  const reportHtml = reader.takeString("report-html", "public");
   const requireComments = reader.takeBoolean("require-comments") ?? false;
   const publish = reader.takeFlag("publish");
   reader.requireNoUnknown();
@@ -788,6 +815,7 @@ async function cmdTaskCreateGsb(globals: CliGlobals, args: string[]): Promise<Cl
         transparent_mode: transparentMode,
         stats,
         show_trace: showTrace,
+        report_html: reportHtml,
         require_comments: requireComments,
       },
     });
@@ -853,6 +881,7 @@ async function cmdTaskConfigure(globals: CliGlobals, args: string[]): Promise<Cl
   const transparentMode = reader.takeOptionalString("transparent-mode");
   const stats = reader.takeOptionalString("stats");
   const showTrace = reader.takeBoolean("show-trace");
+  const reportHtml = reader.takeOptionalString("report-html");
   const requireComments = reader.takeBoolean("require-comments");
   const publish = reader.takeFlag("publish");
   reader.requireNoUnknown();
@@ -862,6 +891,7 @@ async function cmdTaskConfigure(globals: CliGlobals, args: string[]): Promise<Cl
   if (transparentMode !== undefined) visibility.transparent_mode = transparentMode;
   if (stats !== undefined) visibility.stats = stats;
   if (showTrace !== undefined) visibility.show_trace = showTrace;
+  if (reportHtml !== undefined) visibility.report_html = reportHtml;
   if (requireComments !== undefined) visibility.require_comments = requireComments;
   const configRequested = Object.keys(visibility).length > 0;
   if (!setupRequested && !configRequested && !publish) {
@@ -871,7 +901,7 @@ async function cmdTaskConfigure(globals: CliGlobals, args: string[]): Promise<Cl
       "task configure 命令缺少要更新的字段",
       {},
       "空配置不会改变任务行为。",
-      "传入题量、说明、锚点、评论必填、透明模式、统计权限或 trace 展示等配置。",
+      "传入题量、说明、锚点、评论必填、透明模式、统计权限、trace 展示或报告 HTML 可见性等配置。",
       redactedArgv(globals.rawArgv),
     );
     return { payload: { ok: false, message: "没有提供任何配置", issues: [item] }, exitCode: 1 };
@@ -988,10 +1018,10 @@ async function cmdTaskSetup(globals: CliGlobals, args: string[]): Promise<CliRes
         "TASK_VISIBILITY_CONFIG_SEPARATE",
         "warning",
         "可见性和评论必填配置需要单独运行 task config",
-        { fields: ["transparent_mode", "stats", "show_trace", "require_comments"] },
-        "task setup 只保存任务说明和分配策略；require_comments、transparent_mode、stats、show_trace 属于权限/展示配置。",
-        `按任务要求运行 gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false --json，然后再 preflight。`,
-        `gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false --json`,
+        { fields: ["transparent_mode", "stats", "show_trace", "report_html", "require_comments"] },
+        "task setup 只保存任务说明和分配策略；require_comments、transparent_mode、stats、show_trace、report_html 属于权限/展示配置。",
+        `按任务要求运行 gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace true --report-html public --require-comments false --json，然后再 preflight。`,
+        `gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace true --report-html public --require-comments false --json`,
       ),
     ];
     if (evalDimensions.length) {
@@ -1012,7 +1042,7 @@ async function cmdTaskSetup(globals: CliGlobals, args: string[]): Promise<CliRes
         setup_effects: setupEffects,
         warnings,
         next_commands: [
-          `gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false --json`,
+          `gsb-cli task config ${taskId} --transparent-mode admin_only --stats admin_only --show-trace true --report-html public --require-comments false --json`,
           `gsb-cli task preflight ${taskId} --json`,
           `gsb-cli task publish ${taskId} --json`,
         ],
@@ -1032,11 +1062,13 @@ async function cmdTaskConfig(globals: CliGlobals, args: string[]): Promise<CliRe
   const transparentMode = reader.takeOptionalString("transparent-mode");
   const stats = reader.takeOptionalString("stats");
   const showTrace = reader.takeBoolean("show-trace");
+  const reportHtml = reader.takeOptionalString("report-html");
   const requireComments = reader.takeBoolean("require-comments");
   reader.requireNoUnknown();
   if (transparentMode !== undefined) visibility.transparent_mode = transparentMode;
   if (stats !== undefined) visibility.stats = stats;
   if (showTrace !== undefined) visibility.show_trace = showTrace;
+  if (reportHtml !== undefined) visibility.report_html = reportHtml;
   if (requireComments !== undefined) visibility.require_comments = requireComments;
   if (!Object.keys(visibility).length) {
     const item = issue(
@@ -1045,7 +1077,7 @@ async function cmdTaskConfig(globals: CliGlobals, args: string[]): Promise<CliRe
       "task config 命令缺少要更新的字段",
       {},
       "空配置不会改变任务行为。",
-      "传入 --transparent-mode、--stats、--show-trace 或 --require-comments。",
+      "传入 --transparent-mode、--stats、--show-trace、--report-html 或 --require-comments。",
       redactedArgv(globals.rawArgv),
     );
     return { payload: { ok: false, message: "没有提供任何权限配置", issues: [item] }, exitCode: 1 };
@@ -1223,10 +1255,11 @@ async function cmdReportStatus(globals: CliGlobals, args: string[]): Promise<Cli
 async function cmdReportUpload(globals: CliGlobals, args: string[]): Promise<CliResult> {
   const taskId = requireArg(args, 0, "task-id");
   const reader = new OptionReader(args.slice(1));
+  const workspaceRoot = reader.takeOptionalString("workspace-root");
   reader.requireNoUnknown();
   const files = reader.rest();
   if (files.length === 0) {
-    throw new CliUsageError("report upload requires at least one .html or .json file");
+    throw new CliUsageError("report upload requires at least one .html, .json, or .jsonl file");
   }
 
   const fileMap: Record<string, string> = {};
@@ -1237,18 +1270,90 @@ async function cmdReportUpload(globals: CliGlobals, args: string[]): Promise<Cli
     }
     const fileName = basename(path);
     const lowerName = fileName.toLowerCase();
-    const acceptedSuffix = lowerName.endsWith(".html") || lowerName.endsWith(".json");
+    const acceptedSuffix = lowerName.endsWith(".html") || lowerName.endsWith(".json") || lowerName.endsWith(".jsonl");
     if (!acceptedSuffix) {
-      throw new CliUsageError(`report upload only accepts .html and .json files: ${file}`);
+      throw new CliUsageError(`report upload only accepts .html, .json, and .jsonl files: ${file}`);
     }
     if (fileName in fileMap) {
       throw new CliUsageError(`duplicate report file name: ${fileName}`);
     }
     fileMap[fileName] = readFileSync(path, "utf8");
+    if (lowerName.endsWith(".jsonl")) {
+      for (const [index, line] of fileMap[fileName].split(/\r?\n/u).entries()) {
+        if (!line.trim()) continue;
+        try {
+          const value = JSON.parse(line) as unknown;
+          if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("row is not an object");
+        } catch {
+          throw new CliUsageError(`${fileName}:${index + 1} must contain a JSON object`);
+        }
+      }
+    }
   }
 
+  const v2SummaryText = fileMap["decision_summary.json"];
+  if (v2SummaryText) {
+    let summary: JsonObject | null = null;
+    try {
+      const parsed = JSON.parse(v2SummaryText) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) summary = parsed as JsonObject;
+    } catch {
+      throw new CliUsageError("decision_summary.json must contain valid JSON");
+    }
+    if (summary?.protocol_version === "gsb-decision-v2") {
+      const names = Object.keys(fileMap).sort();
+      if (typeof summary.source_analysis_run_id !== "string" || !summary.source_analysis_run_id.trim()) {
+        throw new CliUsageError("gsb-decision-v2 summary requires source_analysis_run_id");
+      }
+      const html = fileMap["decision_report.html"];
+      if (!html) throw new CliUsageError("gsb-decision-v2 upload requires decision_report.html");
+      const legacyNames = ["decision_report.html", "decision_summary.json"];
+      const twoStageNames = ["cqc_report.html", "decision_report.html", "decision_summary.json", "review_report.html"];
+      const twoStageWithDraftNames = [...twoStageNames, "case-review-draft.jsonl"].sort();
+      const isLegacyBundle = names.length === legacyNames.length && names.every((name, index) => name === legacyNames[index]);
+      const isTwoStageBundle = (
+        names.length === twoStageNames.length && names.every((name, index) => name === twoStageNames[index])
+      ) || (
+        names.length === twoStageWithDraftNames.length && names.every((name, index) => name === twoStageWithDraftNames[index])
+      );
+      const referencesTwoStageReports = /href=["'](?:\.\/)?review_report\.html/.test(html)
+        || /href=["'](?:\.\/)?cqc_report\.html/.test(html);
+      if ((!isLegacyBundle && !isTwoStageBundle) || (referencesTwoStageReports && !isTwoStageBundle)) {
+        throw new CliUsageError(
+          "gsb-decision-v2 two-stage upload requires review_report.html, decision_report.html, cqc_report.html, and decision_summary.json",
+        );
+      }
+      if (isTwoStageBundle) {
+        for (const fileName of ["review_report.html", "cqc_report.html"]) {
+          if (!fileMap[fileName]) throw new CliUsageError(`gsb-decision-v2 upload requires ${fileName}`);
+        }
+      }
+      const reviewLinks = [...html.matchAll(/href=["']([^"']*review\/\?q=[^"']*)["']/g)].map((match) => match[1]);
+      if (reviewLinks.some((link) => !link.startsWith("../review/?q="))) {
+        throw new CliUsageError("gsb-decision-v2 review links must use ../review/?q=<query-id>");
+      }
+      const artifactLinks = [...html.matchAll(/data-web-href=["']([^"']*artifacts\/download\?path=[^"']*)["']/g)].map((match) => match[1]);
+      if (artifactLinks.some((link) => !link.startsWith("../artifacts/download?path="))) {
+        throw new CliUsageError("gsb-decision-v2 artifact links must use ../artifacts/download?path=<allowlisted-path>");
+      }
+    }
+  }
+
+  const attachments: Record<string, string> = {};
+  for (const file of files) {
+    if (!file.toLowerCase().endsWith('.html')) continue;
+    const name = basename(file);
+    const bundle = bundleReportArtifacts(fileMap[name], resolve(expandHome(file)), workspaceRoot);
+    fileMap[name] = bundle.html;
+    Object.assign(attachments, bundle.files);
+  }
   const client = await buildClient(globals);
   try {
+    for (const [name, content] of Object.entries(attachments)) {
+      await client.request("POST", `/tasks/${encodeURIComponent(taskId)}/api/reports`, { files: { [name]: content } });
+      const readback = await client.request("GET", `/tasks/${encodeURIComponent(taskId)}/report/${encodeURIComponent(name)}`, undefined, { expectBytes: true });
+      if (!readback.bytes.equals(Buffer.from(content))) throw new Error(`Artifact readback mismatch: ${name}`);
+    }
     const data = await client.request<JsonObject>("POST", `/tasks/${encodeURIComponent(taskId)}/api/reports`, { files: fileMap });
     const report = data.report && typeof data.report === "object" ? data.report as JsonObject : {};
     return {
@@ -1257,6 +1362,7 @@ async function cmdReportUpload(globals: CliGlobals, args: string[]): Promise<Cli
         message: "归档分析报告已上传",
         task_id: taskId,
         saved: data.saved || [],
+        artifacts: Object.keys(attachments),
         skipped: data.skipped || [],
         report,
         urls: buildReportUrls(client.baseUrl, report),
@@ -1323,6 +1429,210 @@ async function cmdReportDownload(globals: CliGlobals, args: string[]): Promise<C
   }
 }
 
+async function cmdReportReview(globals: CliGlobals, args: string[]): Promise<CliResult> {
+  const taskId = requireArg(args, 0, "task-id");
+  const reader = new OptionReader(args.slice(1));
+  const outputArg = reader.takeOptionalString("output");
+  reader.requireNoUnknown();
+  const client = await buildClient(globals);
+  try {
+    const data = await client.request<JsonObject>("GET", `/tasks/${encodeURIComponent(taskId)}/api/review-data`);
+    const records = Array.isArray(data.records) ? data.records.filter((item): item is JsonObject => Boolean(item && typeof item === "object" && !Array.isArray(item))) : [];
+    const queryReviews = Array.isArray(data.query_reviews)
+      ? data.query_reviews.filter((item): item is JsonObject => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+      : [];
+    const caseReviewDrafts = Array.isArray(data.case_review_drafts)
+      ? data.case_review_drafts.filter((item): item is JsonObject => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+      : [];
+    const correctionMap = (value: unknown): JsonObject => (
+      value && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : {}
+    );
+    const correctionCount = (record: JsonObject): number => (
+      Object.keys(correctionMap(record.pointwise_corrections)).length
+      + Object.keys(correctionMap(record.pairwise_corrections)).length
+    );
+    const correctionFeedback = (record: JsonObject): string[] => {
+      const fallback = String(record.correction_feedback || "");
+      return [record.pointwise_corrections, record.pairwise_corrections].flatMap((value) => (
+        Object.values(correctionMap(value)).flatMap((detail) => {
+          const item = correctionMap(detail);
+          const feedback = String(item.worker_feedback || item.feedback || fallback).trim();
+          return feedback ? [feedback] : [];
+        })
+      ));
+    };
+    const corrections = records.flatMap((record) => {
+      const pointwise = correctionMap(record.pointwise_corrections);
+      const pairwise = correctionMap(record.pairwise_corrections);
+      if (Object.keys(pointwise).length === 0 && Object.keys(pairwise).length === 0) return [];
+      return [{
+        query_id: String(record.query_id || ""),
+        evaluator: String(record.evaluator || ""),
+        pointwise_corrections: pointwise,
+        pairwise_corrections: pairwise,
+        reviewer_id: String(record.reviewer_id || ""),
+        reviewed_at: String(record.reviewed_at || ""),
+      }];
+    });
+    const byEvaluator: Record<string, { corrected_questions: Set<string>; corrected_scores: number; covered_scores: number }> = {};
+    for (const record of records) {
+      const evaluator = String(record.evaluator || "");
+      if (!evaluator) continue;
+      byEvaluator[evaluator] ||= { corrected_questions: new Set<string>(), corrected_scores: 0, covered_scores: 0 };
+      const original = record.pointwise_scores_by_model;
+      if (original && typeof original === "object" && !Array.isArray(original)) {
+        byEvaluator[evaluator].covered_scores += Object.keys(original).length;
+      }
+      if (Array.isArray(record.pairwise_dimension_ids)) {
+        byEvaluator[evaluator].covered_scores += record.pairwise_dimension_ids.length;
+      }
+    }
+    for (const correction of corrections) {
+      const item = byEvaluator[correction.evaluator] ||= { corrected_questions: new Set<string>(), corrected_scores: 0, covered_scores: 0 };
+      item.corrected_questions.add(correction.query_id);
+      item.corrected_scores += correctionCount(correction);
+    }
+    const evaluatorStats = Object.entries(byEvaluator).map(([evaluator, item]) => ({
+      evaluator,
+      corrected_questions: item.corrected_questions.size,
+      corrected_scores: item.corrected_scores,
+      covered_scores: item.covered_scores,
+      cqc_consistency_rate: item.covered_scores ? (item.covered_scores - item.corrected_scores) / item.covered_scores : null,
+    })).sort((a, b) => b.corrected_scores - a.corrected_scores || a.evaluator.localeCompare(b.evaluator));
+    const byQuestion: Record<string, { evaluators: Set<string>; corrected_scores: number; feedback: string[] }> = {};
+    for (const correction of corrections) {
+      const item = byQuestion[correction.query_id] ||= { evaluators: new Set<string>(), corrected_scores: 0, feedback: [] };
+      item.evaluators.add(correction.evaluator);
+      item.corrected_scores += correctionCount(correction);
+      item.feedback.push(...correctionFeedback(correction).map((feedback) => `${correction.evaluator}: ${feedback}`));
+    }
+    const questionStats = Object.entries(byQuestion).map(([queryId, item]) => ({
+      query_id: queryId,
+      corrected_evaluators: item.evaluators.size,
+      corrected_scores: item.corrected_scores,
+      feedback: item.feedback,
+    })).sort((a, b) => b.corrected_scores - a.corrected_scores || a.query_id.localeCompare(b.query_id));
+    const correctedQuestionCount = new Set(corrections.map((item) => item.query_id)).size;
+    const correctedScoreCount = corrections.reduce((sum, item) => sum + correctionCount(item), 0);
+    const coveredScoreCount = evaluatorStats.reduce((sum, item) => sum + item.covered_scores, 0);
+    const issueList = (value: unknown): JsonObject[] => {
+      const item = correctionMap(value);
+      const responseSets = correctionMap(item.response_issue_sets);
+      const relativeSet = correctionMap(item.relative_issue_set);
+      return [
+        ...Object.values(responseSets).flatMap((issueSet) => {
+          const issues = correctionMap(issueSet).issues;
+          return Array.isArray(issues) ? issues.map(correctionMap) : [];
+        }),
+        ...(Array.isArray(relativeSet.issues) ? relativeSet.issues.map(correctionMap) : []),
+      ];
+    };
+    const draftsByQuery = new Map(caseReviewDrafts.map((draft) => [String(draft.query_id || ""), draft]));
+    const queryReviewStats = queryReviews.map((queryReview) => {
+      const pointwise = correctionMap(queryReview.pointwise_reviews);
+      const pairwise = correctionMap(queryReview.pairwise_reviews);
+      const decisions = Object.values(correctionMap(queryReview.comment_decisions)).map(correctionMap);
+      const finalIssues = issueList(queryReview.case_issue_reviews);
+      const draftIssues = issueList(draftsByQuery.get(String(queryReview.query_id || "")));
+      const finalById = new Map(finalIssues.map((issue) => [String(issue.issue_id || ""), issue]));
+      const draftById = new Map(draftIssues.map((issue) => [String(issue.issue_id || ""), issue]));
+      const issueAddedCount = [...finalById.keys()].filter((issueId) => !draftById.has(issueId)).length;
+      const issueRemovedCount = [...draftById.keys()].filter((issueId) => !finalById.has(issueId)).length;
+      const issueModifiedCount = [...finalById.entries()].filter(([issueId, issue]) => {
+        const draftIssue = draftById.get(issueId);
+        return draftIssue && JSON.stringify(draftIssue) !== JSON.stringify(issue);
+      }).length;
+      return {
+        query_id: String(queryReview.query_id || ""),
+        reviewer_id: String(queryReview.reviewer_id || ""),
+        review_status: String(queryReview.review_status || "in_progress"),
+        final_score_count: Object.keys(pointwise).length + Object.keys(pairwise).length,
+        accepted_comment_count: decisions.filter((item) => item.decision === "accepted").length,
+        rejected_comment_count: decisions.filter((item) => item.decision === "rejected").length,
+        final_issue_count: finalIssues.length,
+        primary_issue_count: finalIssues.filter((item) => item.cause_role === "primary").length,
+        issue_added_count: issueAddedCount,
+        issue_removed_count: issueRemovedCount,
+        issue_modified_count: issueModifiedCount,
+      };
+    });
+    const byReviewerMap: Record<string, {
+      reviewedQuestions: Set<string>;
+      completedQuestions: Set<string>;
+      finalScores: number;
+      acceptedComments: number;
+      rejectedComments: number;
+    }> = {};
+    for (const item of queryReviewStats) {
+      const reviewer = item.reviewer_id || "unknown";
+      const stats = byReviewerMap[reviewer] ||= {
+        reviewedQuestions: new Set<string>(),
+        completedQuestions: new Set<string>(),
+        finalScores: 0,
+        acceptedComments: 0,
+        rejectedComments: 0,
+      };
+      if (item.query_id) stats.reviewedQuestions.add(item.query_id);
+      if (item.review_status === "completed" && item.query_id) stats.completedQuestions.add(item.query_id);
+      stats.finalScores += item.final_score_count;
+      stats.acceptedComments += item.accepted_comment_count;
+      stats.rejectedComments += item.rejected_comment_count;
+    }
+    const byReviewer = Object.entries(byReviewerMap).map(([reviewerId, item]) => ({
+      reviewer_id: reviewerId,
+      reviewed_questions: item.reviewedQuestions.size,
+      completed_questions: item.completedQuestions.size,
+      final_scores: item.finalScores,
+      accepted_comments: item.acceptedComments,
+      rejected_comments: item.rejectedComments,
+    })).sort((a, b) => b.final_scores - a.final_scores || a.reviewer_id.localeCompare(b.reviewer_id));
+    const review = {
+      task_id: taskId,
+      corrected_question_count: correctedQuestionCount,
+      corrected_score_count: correctedScoreCount,
+      covered_score_count: coveredScoreCount,
+      cqc_consistency_rate: coveredScoreCount ? (coveredScoreCount - correctedScoreCount) / coveredScoreCount : null,
+      by_question: questionStats,
+      by_evaluator: evaluatorStats,
+      corrections,
+      query_review_summary: {
+        reviewed_question_count: queryReviewStats.length,
+        completed_question_count: queryReviewStats.filter((item) => item.review_status === "completed").length,
+        final_score_count: queryReviewStats.reduce((sum, item) => sum + item.final_score_count, 0),
+        accepted_comment_count: queryReviewStats.reduce((sum, item) => sum + item.accepted_comment_count, 0),
+        rejected_comment_count: queryReviewStats.reduce((sum, item) => sum + item.rejected_comment_count, 0),
+        final_issue_count: queryReviewStats.reduce((sum, item) => sum + item.final_issue_count, 0),
+        primary_issue_count: queryReviewStats.reduce((sum, item) => sum + item.primary_issue_count, 0),
+        issue_added_count: queryReviewStats.reduce((sum, item) => sum + item.issue_added_count, 0),
+        issue_removed_count: queryReviewStats.reduce((sum, item) => sum + item.issue_removed_count, 0),
+        issue_modified_count: queryReviewStats.reduce((sum, item) => sum + item.issue_modified_count, 0),
+        by_question: queryReviewStats,
+        by_reviewer: byReviewer,
+      },
+      query_reviews: queryReviews,
+      case_review_drafts: caseReviewDrafts,
+    };
+    let outputPath = "";
+    if (outputArg) {
+      outputPath = resolve(expandHome(outputArg));
+      mkdirSync(dirname(outputPath), { recursive: true });
+      writeFileSync(outputPath, `${JSON.stringify(review, null, 2)}\n`, "utf8");
+    }
+    return {
+      payload: {
+        ok: true,
+        message: (corrections.length || queryReviews.length) ? "已读取报告 Review 记录" : "暂无报告 Review 记录",
+        review,
+        ...(outputPath ? { output_path: outputPath } : {}),
+      },
+      exitCode: 0,
+    };
+  } catch (error) {
+    if (error instanceof ApiError) return apiFailurePayload(error, "读取报告 Review 记录", globals);
+    throw error;
+  }
+}
+
 async function cmdResultsSummary(globals: CliGlobals, args: string[]): Promise<CliResult> {
   const taskId = requireArg(args, 0, "task-id");
   const reader = new OptionReader(args.slice(1));
@@ -1350,6 +1660,15 @@ function buildReportUrls(baseUrl: string, report: JsonObject): JsonObject {
   }
   if (typeof report.summary_url === "string" && report.summary_url) {
     urls.summary = absoluteUrl(baseUrl, report.summary_url);
+  }
+  if (typeof report.review_url === "string" && report.review_url) {
+    urls.review = absoluteUrl(baseUrl, report.review_url);
+  }
+  if (typeof report.algorithm_url === "string" && report.algorithm_url) {
+    urls.algorithm = absoluteUrl(baseUrl, report.algorithm_url);
+  }
+  if (typeof report.cqc_url === "string" && report.cqc_url) {
+    urls.cqc = absoluteUrl(baseUrl, report.cqc_url);
   }
   return urls;
 }
@@ -1551,6 +1870,8 @@ async function buildClient(globals: CliGlobals, options: { autoLogin?: boolean }
   const client = new ApiClient({
     baseUrl,
     sessionToken: globals.env.GSB_SESSION_TOKEN || saved.session_token || "",
+    csrfToken: saved.csrf_token || "",
+    webDid: saved.web_did || "",
   });
   const username = globals.username || globals.env.GSB_USERNAME;
   const password = globals.password || globals.env.GSB_PASSWORD;
@@ -1561,6 +1882,8 @@ async function buildClient(globals: CliGlobals, options: { autoLogin?: boolean }
       username: String(data.username || username),
       role: String(data.role || ""),
       session_token: client.sessionToken,
+      csrf_token: client.csrfToken,
+      web_did: client.webDid,
     });
   }
   return client;
@@ -1568,6 +1891,21 @@ async function buildClient(globals: CliGlobals, options: { autoLogin?: boolean }
 
 function resolveBaseUrl(globals: CliGlobals, saved: SessionData = {}): string {
   return (globals.baseUrl || saved.base_url || globals.env.GSB_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
+}
+
+function persistClientSession(globals: CliGlobals, client: ApiClient, user: JsonObject = {}): void {
+  if (!client.sessionToken) return;
+  const path = sessionPath(globals.env);
+  const saved = loadSessions(path)[globals.profile] || {};
+  saveSession(path, globals.profile, {
+    ...saved,
+    base_url: client.baseUrl,
+    username: String(user.username || saved.username || ""),
+    role: String(user.role || saved.role || ""),
+    session_token: client.sessionToken,
+    csrf_token: client.csrfToken,
+    web_did: client.webDid,
+  });
 }
 
 function datasetUploadFailurePayload(error: ApiError, globals: CliGlobals): CliResult | null {

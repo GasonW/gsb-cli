@@ -71,10 +71,10 @@ npm -v
 npm install -g gsb-cli
 ```
 
-安装包内自带 `gsb-eval` Agent skill。`npm install` 会默认把 skill 复制到 Codex 和 Cursor 的 skills 目录：
+安装包内自带 `gsb-cli` Agent skill。`npm install` 会默认把 skill 复制到 Codex 和 Cursor 的 skills 目录：
 
-- Codex: `~/.codex/skills/gsb-eval`
-- Cursor: `~/.cursor/skills/gsb-eval`
+- Codex: `~/.codex/skills/gsb-cli`
+- Cursor: `~/.cursor/skills/gsb-cli`
 
 如果只想安装到某一个 Agent，或跳过自动安装：
 
@@ -162,8 +162,15 @@ export GSB_PASSWORD="<password>"
 gsb-cli auth login --username <user> --json
 ```
 
+NestJS/PostgreSQL 部署会对 API 启用 double-submit CSRF。CLI 会在登录前自动访问
+`/login` 获取 `suda-csrf-token`，并在后续请求中同时携带同值 Cookie 和
+`X-Suda-Csrf-Token` 请求头；不需要手工复制 token。旧 session 遇到 CSRF 403 时会自动
+补取 token 并重试一次，未启用 CSRF 的旧 Python 部署仍可继续使用。
+
 准备一份与 AIDP 相同格式的 A/B JSON 或 JSONL。JSON 可使用数组或 `records/items` 包装，JSONL 一行就是一道题；至少包含
 `taskName/queryId/query/versionAName/versionBName/responseA/responseB/productCardsA/productCardsB`。
+
+源跑测存在 Trace 时，`traceA`、`traceB` 必须是完成态 `kind=message` JSON object 字符串数组。流式事件在源 model run 与任务输入写入前清除。
 
 ```text
 input.jsonl
@@ -177,14 +184,10 @@ gsb-cli dataset upload --input ./input.jsonl --name candidate-vs-baseline --json
 ```
 
 如果输入来自 framework 的可复用加工数据，annotation archive 按一次模型对比分组：
-`workspace/annotation_sets/<YYMMDD-ModelA-vs-ModelB>/`。创建任务前，先把该对比需要的
-female/male 与各 batch slice 合并成一份输入；一个 task 不再按 cohort 或 batch 拆分。
-framework 管理的 task ID 使用 `YYMMDD-ModelA-ModelB[-remark]`。
-上游 raw run 使用 `workspace/model_runs/<benchmark-id>/<YYMMDD-ModelID>[-rN]/`
-和同名 JSONL；平台短 run ID 只保存在 manifest 中。
+`workspace/annotation_sets/<YYMMDD-ModelA-vs-ModelB>/`。创建任务前，先把该对比需要的 cohort 与 batch slice 合并成一份输入；一个 task 不再按 cohort 或 batch 拆分。framework 管理的 task ID 使用 `YYMMDD-ModelA-ModelB[-remark]`。
 
 历史任务仍可使用 `dataset check/upload --a <dir-a> --b <dir-b>` 和
-`task bind --a <dataset-a> --b <dataset-b>`；新任务应使用聚合后的单个统一输入，平台会规范化为根级 `input.jsonl`。
+`task bind --a <dataset-a> --b <dataset-b>`；新任务应使用聚合后的统一输入，平台会规范化为根级 `input.jsonl`。
 
 同名数据集上传规则：
 
@@ -231,7 +234,7 @@ gsb-cli task configure <task-id> \
   --require-comments false \
   --transparent-mode admin_only \
   --stats admin_only \
-  --show-trace false \
+  --show-trace true \
   --json
 ```
 
@@ -244,10 +247,19 @@ gsb-cli task configure <task-id> \
 | `--description` / `--description-file` | `task create-gsb` / `task configure` | 给评估者看的任务说明 |
 | `--transparent-mode` | `task create-gsb` / `task configure` | 版本名可见性，常用 `admin_only` |
 | `--stats` | `task create-gsb` / `task configure` | 统计面板可见性，常用 `admin_only` |
-| `--show-trace` | `task create-gsb` / `task configure` | 是否展示 trace，默认 `false` |
+| `--show-trace` | `task create-gsb` / `task configure` | 是否展示 trace，默认 `true` |
+| `--report-html` | `task create-gsb` / `task configure` | Review 与报告 HTML 可见性，默认 `public`；可设 `authenticated` 或 `admin_only` |
 | `--require-comments` | `task create-gsb` / `task configure` | 是否强制评论必填，默认 `false` |
 
 底层命令 `task create`、`task bind`、`task setup`、`task config` 仍可用于精细控制。Agent 常规使用应优先走 `task create-gsb` 和 `task configure`，避免漏配评论、透明模式、统计权限或 trace 展示。
+
+三模型 Review 可用 `gsb-cli task create --mode review` 创建，并可继续使用 `task get`、
+`task preflight`、`task publish` 和结果导出。Review 的 A/B/C JSONL 当前需在命令返回的
+`urls.manage` 页面上传；`dataset upload` 与 `task bind --input` 仍只校验 A/B AIDP 契约。
+评估页对 A/B/C 三组 response 分别记录 `0/1/2/3` 绝对质量分和可选全局评论，不采集 GSB 胜负。
+Review JSONL 可用 `reviewPriority` 标记重点 case：必须设置 `isPriority=true`，并在
+`comparisons` 中提供 `track/candidate/baseline/candidateScore/baselineScore/overall`；
+该字段只控制目录高亮和证据横幅，不改变本次 Review 分数。
 
 导出结果：
 
@@ -256,18 +268,36 @@ gsb-cli results summary <task-id> --all --json
 gsb-cli results export <task-id> --format json --output ./exports --json
 ```
 
-结果中的评论按实际版本名组织。版本级全局评论位于 `comments[版本名].items`，每项包含 `feedback_type`、`comment`、`images` 等字段；`comments[版本名].pros` 和 `cons` 保留为按方向拼接的兼容文本。划线、卡片和全局评论共享 `anchored_comments` 存储，读取划线定位时应排除 `target_type: "global"` 的项。
+新 ChatBuy Eval 结果把两个模型的 0–3 分保存在 `single_report_quality[实际版本名]`，对应必填原因保存在 `single_report_comments[实际版本名]`；Pairwise 只新增 Overall GSB，必填对比原因位于 `comments.general`。评论框按光标位置内联插入的维度标签和划线评论引用保存在 `comment_mentions`，可定位原文的划线证据仍保存在 `anchored_comments`。历史分维度 GSB、回答维度评分、可用性评分和 `quality_rating` 仅作兼容读取。
 
-如果本地已经生成 HTML 报告 / JSON 摘要，可以上传到任务归档；也可以查看和下载平台侧已有报告：
+历史版本级全局评论仍位于 `comments[版本名].items`，每项包含 `feedback_type`、`comment`、`images` 等字段；`comments[版本名].pros` 和 `cons` 保留为按方向拼接的兼容文本。划线、卡片和全局评论共享 `anchored_comments` 存储，读取划线定位时应排除 `target_type: "global"` 的项。
+
+分析生成和归档是两个独立步骤。具体分析阶段和门禁以平台仓库的注册工作流为准。Review 页面生成后先单独上传：
 
 ```bash
-gsb-cli report upload <task-id> ./decision_report.html ./decision_summary.json --json
+gsb-cli report upload <task-id> <review-report-path> <case-review-draft.jsonl> --json
 gsb-cli report status <task-id> --json
-gsb-cli report download <task-id> --type html --output ./decision_report.html --json
-gsb-cli report download <task-id> --type json --output ./decision_summary.json --json
 ```
 
-`report upload` 会把本地 `.html` 和 `.json` 文本文件写入 `workspace/tasks/<task-id>/report/`。平台只从该 task 目录发现报告，不维护 workspace 级聚合页或 report archive。上传需要当前账号有任务管理权限。
+用户在后续对话中明确触发正式分析报告后，再上传已确认的最终报告与摘要；CQC 仅在用户单独要求且实际生成时追加。也可以查看和下载平台侧已有报告：
+
+```bash
+gsb-cli report upload <task-id> <review-report-path> <report-path> <summary-path> [cqc-report-path] --json
+gsb-cli report status <task-id> --json
+gsb-cli report download <task-id> --type html --output ./decision_report.html --json
+gsb-cli report download <task-id> --type html --file review_report.html --output ./review_report.html --json
+gsb-cli report download <task-id> --type html --file cqc_report.html --output ./cqc_report.html --json
+gsb-cli report download <task-id> --type json --output ./decision_summary.json --json
+gsb-cli report review <task-id> --output ./review-feedback.json --json
+```
+
+`report upload` 会把本地 `.html`、`.json` 和 `.jsonl` 文本写入线上任务的 PostgreSQL report 记录。Review 阶段可只上传 `review_report.html` 和 `case-review-draft.jsonl`；这一阶段不需要分析报告、摘要或 CQC。上传后的 Review 与报告 HTML 默认使用公开 URL；上传、元数据和非 HTML 文件仍需要登录。Review、最终报告与评估页复用平台共享证据组件：已有 Trace 默认折叠在 Query 与正式答案之间；回答中的有效商品卡、错误卡片及其可展开原始 XML 均由同一组件渲染。CLI 会校验文件名、JSONL 行结构，以及现有 `gsb-decision-v2` bundle 的 `source_analysis_run_id` 和 `../review/?q=` 相对题目链接。上传需要当前账号有任务管理权限。
+
+Review 报告只保留原模块 4 与筛选器，操作单元是题目。评论可标记采纳、修正或不采纳；未操作评论在保存时默认采纳，修正评论仍进入后续分析且修正说明计入 CQC 反馈，不采纳评论必须写理由且不进入分析。Pointwise 两个模型和 Overall GSB 可给出题目级最终分，改分时“我的原因”为选填；未改分默认认可当前统计来源分。问题成因直接编辑标签、主次和总结，关联人工评论为选填，不编辑问题优先级、证据状态、事实核验备注或回答证据。每题另有自由备注，可供后续 AI 分析和页面搜索。最终统计优先级为“我的终判 > 独立裁决/QC > 有效作业人员加权平均”。可见报告只展示 Overall GSB，不展示分维度 GSB。`report review` 导出题目 Review、评论状态、问题成因和题目备注，以及按题目和 Reviewer 的终判量。
+
+`gsb-decision-v2` 的可见报告直接展示真实模型版本、总体 G/S/B 与双方胜率（排除 Same）、题目级 Pointwise 平均分/0 分率/`≥2` 分率，并把差异稳定性与数据可信度分开判断；题目范围与标注记录处理分开说明，原始评分记录分布仅保存在审计产物。报告不展示协议、run id、checksum，也不输出上线建议。
+
+全量明细使用题目证据卡片，同时提供两个模型各自的 Pointwise 分数筛选，并支持相对 Baseline 高低、GSB“维度 → 结果”、文本和工具筛选；当前命中题数 / 全部题数只在模块标题显示一次。每张卡片可展开双版本完整回答、逐人评分与评论和双栏完成态 Trace。报告附件只提供原始跑测 Trace、原始标注结果和 Benchmark；平台下载会校验任务权限和文件白名单。
 
 如果任务已经完成，也可以把任务归档：
 
@@ -277,7 +307,7 @@ gsb-cli task archive <task-id> --json
 
 ## 数据格式
 
-标准输入是一份 AIDP-compatible JSON/JSONL，每条记录同时包含同一道题的 A/B 数据。
+标准输入是一份 AIDP-compatible JSONL，每行同时包含同一道题的 A/B 数据。
 
 ```text
 input.jsonl
@@ -285,12 +315,11 @@ input.jsonl
 
 规则：
 
-- JSONL 每个非空行是 JSON object；JSON 使用 object、array 或 `records/items` 包装。
+- 每个非空行是 JSON object。
 - `queryId` 在文件内唯一。
 - `taskName`、`versionAName`、`versionBName` 在所有行中一致。
 - `productCardsA/productCardsB` 是 JSON 字符串数组；无商品卡时为 `[]`。
-- 可选 `traceA/traceB` 是 JSON object 字符串数组；非法值会在上传前报错。
-- CSV、XLSX、非标准 JSON/JSONL、TSV 需要先转换成统一 contract。
+- CSV、XLSX、非标准 JSONL、NDJSON、TSV 需要先转换成统一 JSONL contract。
 
 最小 JSONL 行示例：
 
@@ -304,9 +333,7 @@ input.jsonl
   "responseA": "版本 A 回复",
   "responseB": "版本 B 回复",
   "productCardsA": [],
-  "productCardsB": [],
-  "traceA": ["{\"type\":\"tool_call\",\"name\":\"search\"}"],
-  "traceB": []
+  "productCardsB": []
 }
 ```
 
@@ -333,19 +360,20 @@ gsb-cli task renderer upload <task-id> ./renderer.js --json
 | 查看数据集 | `gsb-cli dataset list` |
 | 一站式创建任务 | `gsb-cli task create-gsb --name "candidate vs baseline" --purpose "评估 candidate 相比 baseline 的回答质量和上线风险" --input <jsonl-dataset-id>` |
 | 查看任务状态 | `gsb-cli task get <task-id>` |
-| 修改任务配置 | `gsb-cli task configure <task-id> --min-per-person auto --require-comments false --show-trace false` |
+| 修改任务配置 | `gsb-cli task configure <task-id> --min-per-person auto --require-comments false --show-trace true` |
 | 底层创建任务 | `gsb-cli task create --name "candidate vs baseline" --purpose "评估 candidate 相比 baseline 的回答质量和上线风险"` |
 | 绑定数据 | `gsb-cli task bind <task-id> --input <jsonl-dataset-id>` |
 | 底层配置任务 | `gsb-cli task setup <task-id> --min-per-person auto` |
-| 底层配置权限/评论 | `gsb-cli task config <task-id> --transparent-mode admin_only --stats admin_only --show-trace false --require-comments false` |
+| 底层配置权限/评论 | `gsb-cli task config <task-id> --transparent-mode admin_only --stats admin_only --show-trace true --require-comments false` |
 | 发布前检查 | `gsb-cli task preflight <task-id>` |
 | 发布任务 | `gsb-cli task publish <task-id>` |
 | 归档任务 | `gsb-cli task archive <task-id>` |
 | 上传 renderer | `gsb-cli task renderer upload <task-id> ./renderer.js` |
-| 上传归档报告 | `gsb-cli report upload <task-id> ./decision_report.html ./decision_summary.json` |
+| 上传当前阶段报告 | `gsb-cli report upload <task-id> <report-file> [report-file...]` |
 | 查看归档报告 | `gsb-cli report status <task-id>` |
 | 下载 HTML 报告 | `gsb-cli report download <task-id> --type html --output ./decision_report.html` |
 | 下载 JSON 摘要 | `gsb-cli report download <task-id> --type json --output ./decision_summary.json` |
+| 导出 Review 反馈 | `gsb-cli report review <task-id> --output ./review-feedback.json` |
 | 查看汇总 | `gsb-cli results summary <task-id> --all` |
 | 导出结果 | `gsb-cli results export <task-id> --format json --output ./exports` |
 
@@ -355,7 +383,7 @@ gsb-cli task renderer upload <task-id> ./renderer.js --json
 
 | 参数 | 说明 |
 | --- | --- |
-| `--base-url <url>` | GSB 平台地址。默认读取 `GSB_BASE_URL`，否则使用 `http://localhost:8888` |
+| `--base-url <url>` | GSB 平台地址。默认读取 `GSB_BASE_URL`，否则使用 `https://chatbuy-eval-boe.bytedance.net` |
 | `--profile <name>` | 本地 session profile，默认 `default` |
 | `--username <user>` | 可选；配合 `--password` 或 `GSB_PASSWORD` 自动登录 |
 | `--password <password>` | 可选；自动登录密码，自动化场景建议用 `GSB_PASSWORD` |
@@ -369,29 +397,33 @@ gsb-cli task renderer upload <task-id> ./renderer.js --json
 ~/.chatbuy_gsb_eval_cli/sessions.json
 ```
 
+每个 profile 保存平台地址、session cookie 和平台需要的 CSRF cookie；文件始终以 `0600`
+权限原子更新，不保存密码。
+
 可以通过环境变量覆盖：
 
 ```bash
 export GSB_CLI_SESSION="/path/to/sessions.json"
 ```
 
-## 平台 workspace 映射
+## 平台持久化映射
 
-这些路径存在于 GSB 平台服务器侧，仅用于排障和理解 CLI 副作用。正常使用时不要绕过 CLI 直接修改。
+当前 JS 后端将运行时状态持久化到 PostgreSQL。下表用于理解 CLI 的平台侧副作用；本地
+`workspace/` 中的 benchmark、model run、annotation set 和 analysis run 仍是可复用数据与分析产物，
+但不是线上 session、任务状态或标注结果的运行时数据库。
 
-| CLI 操作 | 平台 workspace 结果 |
+| CLI 操作 | PostgreSQL / 运行时结果 |
 | --- | --- |
-| `dataset upload` | 保存可绑定的原始 A/B JSONL，更新 `workspace/uploads/_meta.json` |
-| `task create-gsb` | 依次执行创建任务、绑定数据快照、保存分配策略、保存 visibility，并运行发布前检查 |
-| `task create` | 创建 `workspace/tasks/<task-id>/`，并更新任务注册表 |
-| `task bind` | 写入 task 根目录唯一的 `input.jsonl` 并保存版本映射；运行时直接读取 |
-| `task setup` | 写入 `workspace/tasks/<task-id>/_config.json`，包含分配策略、锚点题、评估维度和 visibility |
-| `task config` | 更新同一个 `_config.json` 中的 `visibility` |
-| `task configure` | 按参数组合更新 `_config.json` 中的分配策略和 visibility，并运行发布前检查 |
-| `task renderer upload` | 写入 `workspace/tasks/<task-id>/renderer.js` |
-| `results export` | 在 `workspace/tasks/<task-id>/exports/` 生成导出文件 |
-| `report upload` | 写入 `workspace/tasks/<task-id>/report/` |
-| 评估者提交 | 写入 `workspace/tasks/<task-id>/results/chatbuy-eval/normalized/eval_<user>.json` |
+| `auth login` | 创建数据库 session；本机只保存 session/CSRF cookie，不保存密码 |
+| `dataset upload` | 写入 dataset 与 dataset-file 表，返回稳定 dataset ID |
+| `task create-gsb` | 创建 task，绑定 dataset 快照到 task items，保存分配/visibility 配置并执行 preflight |
+| `task create` | 创建数据库 task 记录；不创建服务器 JSON task 目录 |
+| `task bind` | 把 dataset 内容固化到 task items，并保存版本与 dataset 引用 |
+| `task setup/config/configure` | 更新 task 配置 JSONB、分配题目和可见性设置 |
+| `task renderer upload` | 写入 task renderer 表 |
+| `results export` | 从数据库即时生成下载文件并记录审计事件 |
+| `report upload` | 写入 task report 表；`report status` 返回 `source: "database"` |
+| 评估者提交 | 写入 evaluation、comment 和 review 相关表 |
 
 ## 结构化错误
 
@@ -404,7 +436,7 @@ CLI 失败时会尽量返回可修复的问题，而不是只给 HTTP 错误。
   "ok": false,
   "issues": [
     {
-      "code": "INPUT_DUPLICATE_QUERY_ID",
+      "code": "JSONL_DUPLICATE_QUERY_ID",
       "problem": "queryId 重复：item_0001",
       "evidence": {
         "line": 11,
@@ -472,3 +504,7 @@ node dist/src/index.js --help
 ```
 
 项目运行时依赖为零，开发依赖主要是 TypeScript 和 Node 类型定义。测试使用 Node 内置 test runner。
+
+报告附件归档：`report upload <task-id> <report.html> --workspace-root <workspace>` 解析 `data-workspace-path`（兼容旧 `artifacts/download?path=`），先上传 JSON/JSONL 附件并逐字节回读，再上传改为同目录 SHA-256 附件链接的 HTML。workspace 可从报告所在路径自动识别；缺失来源或路径越界会阻止发布。原始本地 HTML 保持不变。
+
+大于 32 MiB 的附件使用 gzip 分块（每块最多 8 MiB 压缩数据）归档为 JSONL；报告内置下载处理器依次读取、解压并校验原始 SHA-256，再保存原文件名。需要支持 DecompressionStream 的浏览器。归档不会把大文件内嵌到报告正文。

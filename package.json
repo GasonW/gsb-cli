@@ -1,6 +1,6 @@
 {
   "name": "gsb-cli",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "Command line client for the ChatBuy GSB evaluation platform.",
   "type": "module",
   "bin": {
@@ -29,6 +29,10 @@
     "cli"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "devDependencies": {
     "@types/node": "^22.15.30",
     "typescript": "^5.8.3"

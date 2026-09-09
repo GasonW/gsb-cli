@@ -12,49 +12,59 @@ export class ApiError extends Error {
 export class ApiClient {
     baseUrl;
     sessionToken;
+    csrfToken;
+    webDid;
     timeoutMs;
     constructor(options) {
         this.baseUrl = options.baseUrl.replace(/\/+$/, "");
         this.sessionToken = options.sessionToken || "";
+        this.csrfToken = options.csrfToken || "";
+        this.webDid = options.webDid || "";
         this.timeoutMs = options.timeoutMs ?? 60_000;
     }
     async request(method, path, data, options = {}) {
         const url = this.url(path);
-        const headers = {};
         let body;
         if (data !== undefined) {
             body = JSON.stringify(data);
-            headers["content-type"] = "application/json";
         }
-        if (this.sessionToken) {
-            headers.cookie = `session_token=${this.sessionToken}`;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const headers = this.requestHeaders(body !== undefined);
+            let response;
+            try {
+                response = await fetch(url, {
+                    method: method.toUpperCase(),
+                    headers,
+                    body,
+                    signal: AbortSignal.timeout(this.timeoutMs),
+                });
+            }
+            catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                throw new ApiError(0, { error: message }, url);
+            }
+            this.captureCookies(response.headers);
+            if (response.ok) {
+                if (options.expectBytes) {
+                    return { bytes: Buffer.from(await response.arrayBuffer()), headers: response.headers };
+                }
+                return (await decodeResponse(response));
+            }
+            const decoded = await decodeResponse(response);
+            if (attempt === 0 && isCsrfFailure(response.status, decoded)) {
+                await this.bootstrapCsrf(true);
+                continue;
+            }
+            throw new ApiError(response.status, decoded, url);
         }
-        let response;
-        try {
-            response = await fetch(url, {
-                method: method.toUpperCase(),
-                headers,
-                body,
-                signal: AbortSignal.timeout(this.timeoutMs),
-            });
-        }
-        catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            throw new ApiError(0, { error: message }, url);
-        }
-        this.captureCookie(response.headers);
-        if (!response.ok) {
-            throw new ApiError(response.status, await decodeResponse(response), url);
-        }
-        if (options.expectBytes) {
-            return { bytes: Buffer.from(await response.arrayBuffer()), headers: response.headers };
-        }
-        return (await decodeResponse(response));
+        throw new ApiError(0, { error: "request retry exhausted" }, url);
     }
     async login(username, password) {
+        await this.bootstrapCsrf(false);
         return this.request("POST", "/api/auth/login", { username, password });
     }
     async register(username, password) {
+        await this.bootstrapCsrf(false);
         return this.request("POST", "/api/auth/register", { username, password });
     }
     url(path) {
@@ -63,7 +73,51 @@ export class ApiClient {
         }
         return `${this.baseUrl}/${path.replace(/^\/+/, "")}`;
     }
-    captureCookie(headers) {
+    requestHeaders(hasJsonBody) {
+        const headers = { accept: "application/json" };
+        if (hasJsonBody) {
+            headers["content-type"] = "application/json";
+        }
+        if (this.csrfToken) {
+            headers["x-suda-csrf-token"] = this.csrfToken;
+        }
+        const cookies = [
+            ...(this.csrfToken ? [`suda-csrf-token=${this.csrfToken}`] : []),
+            ...(this.webDid ? [`suda_web_did=${this.webDid}`] : []),
+            ...(this.sessionToken ? [`session_token=${this.sessionToken}`] : []),
+        ];
+        if (cookies.length) {
+            headers.cookie = cookies.join("; ");
+        }
+        return headers;
+    }
+    async bootstrapCsrf(required) {
+        const url = this.url("/login");
+        let response;
+        try {
+            response = await fetch(url, {
+                headers: { accept: "text/html" },
+                redirect: "manual",
+                signal: AbortSignal.timeout(this.timeoutMs),
+            });
+        }
+        catch (error) {
+            if (!required)
+                return;
+            const message = error instanceof Error ? error.message : String(error);
+            throw new ApiError(0, { error: `cannot initialize CSRF protection: ${message}` }, url);
+        }
+        if (!response.ok) {
+            if (!required)
+                return;
+            throw new ApiError(response.status, { error: "cannot initialize CSRF protection" }, url);
+        }
+        this.captureCookies(response.headers);
+        if (!this.csrfToken && required) {
+            throw new ApiError(response.status, { error: "application did not return a CSRF token" }, url);
+        }
+    }
+    captureCookies(headers) {
         const headerList = [];
         const getSetCookie = headers.getSetCookie;
         if (typeof getSetCookie === "function") {
@@ -73,13 +127,22 @@ export class ApiClient {
         if (single) {
             headerList.push(single);
         }
-        for (const header of headerList) {
-            const match = /(?:^|;\s*)session_token=([^;]+)/.exec(header);
-            if (match?.[1]) {
-                this.sessionToken = match[1];
-            }
-        }
+        this.sessionToken = cookieValue(headerList, "session_token") || this.sessionToken;
+        this.csrfToken = cookieValue(headerList, "suda-csrf-token") || this.csrfToken;
+        this.webDid = cookieValue(headerList, "suda_web_did") || this.webDid;
     }
+}
+function cookieValue(headers, name) {
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    for (const header of headers) {
+        const match = new RegExp(`(?:^|[,;]\\s*)${escapedName}=([^;,\\s]+)`, "u").exec(header);
+        if (match?.[1])
+            return match[1];
+    }
+    return "";
+}
+function isCsrfFailure(status, data) {
+    return status === 403 && serverError(data).toLowerCase().includes("csrf");
 }
 export function serverError(data) {
     if (data && typeof data === "object") {
