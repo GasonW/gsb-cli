@@ -15,7 +15,9 @@ export function bundleReportArtifacts(html: string, reportPath: string, workspac
   const escape = (s: string): string => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   const rendered = html.replace(/<a\b[^>]*>/gi, tag => {
     const attrs = new Map([...tag.matchAll(/([\w-]+)\s*=\s*(["'])(.*?)\2/gs)].map(m => [m[1], decode(m[3])]));
-    if (!attrs.get('class')?.split(/\s+/).includes('artifact-download')) return tag;
+    const classes = attrs.get('class')?.split(/\s+/) || [];
+    const evidence = classes.includes('report-evidence-source');
+    if (!evidence && !classes.includes('artifact-download')) return tag;
     if (attrs.has('data-artifact-parts')) return tag;
     const web = attrs.get('data-web-href') || '';
     if (/^(?:\.\/)?artifact-[a-f0-9]{64}-/.test(web)) return tag;
@@ -33,7 +35,10 @@ export function bundleReportArtifacts(html: string, reportPath: string, workspac
     const bytes = readFileSync(path);
     const content = bytes.toString('utf8');
     if (!Buffer.from(content).equals(bytes)) throw new Error('Artifact must be valid UTF-8');
-    const name = `artifact-${createHash('sha256').update(bytes).digest('hex')}-${basename(path)}`;
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    if (evidence && attrs.get('data-sha256') !== digest) throw new Error('Report evidence checksum mismatch');
+    const name = evidence ? `evidence-${digest}.json` : `artifact-${digest}-${basename(path)}`;
+    if (evidence && bytes.length > 32 * 1024 * 1024) throw new Error('A report evidence file exceeds 32 MiB');
     if (bytes.length > 32 * 1024 * 1024) {
       const compressed = gzipSync(bytes);
       const parts: string[] = [];
