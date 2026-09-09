@@ -1,3 +1,4 @@
+import { bundleReportArtifacts } from "./report-artifacts.js";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -1143,6 +1144,7 @@ async function cmdReportStatus(globals, args) {
 async function cmdReportUpload(globals, args) {
     const taskId = requireArg(args, 0, "task-id");
     const reader = new OptionReader(args.slice(1));
+    const workspaceRoot = reader.takeOptionalString("workspace-root");
     reader.requireNoUnknown();
     const files = reader.rest();
     if (files.length === 0) {
@@ -1224,8 +1226,23 @@ async function cmdReportUpload(globals, args) {
             }
         }
     }
+    const attachments = {};
+    for (const file of files) {
+        if (!file.toLowerCase().endsWith('.html'))
+            continue;
+        const name = basename(file);
+        const bundle = bundleReportArtifacts(fileMap[name], resolve(expandHome(file)), workspaceRoot);
+        fileMap[name] = bundle.html;
+        Object.assign(attachments, bundle.files);
+    }
     const client = await buildClient(globals);
     try {
+        for (const [name, content] of Object.entries(attachments)) {
+            await client.request("POST", `/tasks/${encodeURIComponent(taskId)}/api/reports`, { files: { [name]: content } });
+            const readback = await client.request("GET", `/tasks/${encodeURIComponent(taskId)}/report/${encodeURIComponent(name)}`, undefined, { expectBytes: true });
+            if (!readback.bytes.equals(Buffer.from(content)))
+                throw new Error(`Artifact readback mismatch: ${name}`);
+        }
         const data = await client.request("POST", `/tasks/${encodeURIComponent(taskId)}/api/reports`, { files: fileMap });
         const report = data.report && typeof data.report === "object" ? data.report : {};
         return {
@@ -1234,6 +1251,7 @@ async function cmdReportUpload(globals, args) {
                 message: "归档分析报告已上传",
                 task_id: taskId,
                 saved: data.saved || [],
+                artifacts: Object.keys(attachments),
                 skipped: data.skipped || [],
                 report,
                 urls: buildReportUrls(client.baseUrl, report),

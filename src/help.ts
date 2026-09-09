@@ -59,7 +59,7 @@ Commands:
 
   report status <task-id>
   report url <task-id>
-  report upload <task-id> ./decision_report.html ./decision_summary.json
+  report upload <task-id> ./decision_report.html ./decision_summary.json [--workspace-root <workspace>]
   report download <task-id> --type html --output ./report.html
 
   报告 HTML 由 gsb-analysis 生成；Review、最终报告和任务页复用共享 Trace 与商品卡证据组件。

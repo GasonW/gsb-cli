@@ -53,7 +53,7 @@ gsb-cli report status <task-id> --json
 5. `task publish` 会先执行 preflight；按失败项修复，不绕过发布门禁。
 6. 平台返回的 dataset ID、task ID 和 URL 是后续步骤的事实来源，不根据名称猜测。
 7. 核心命令使用 `--json`，不解析面向人的终端文案。
-8. Review 阶段只上传 `review_report.html` 和 Review 草稿，随后停止并等待用户在后续对话中触发正式分析；上传不改写 HTML，Review 页面应由 `gsb-analysis` 的共享模板默认展示输入中已有的 Trace，并以共享商品卡组件呈现有效卡、错误卡片和可展开的 response 原始 XML；上传后的 Review 与报告 HTML 默认使用公开 URL。最终阶段只上传已确认且实际存在的产物。每次上传后都用 `report status` 回读。
+8. Review 阶段只上传 `review_report.html` 和 Review 草稿，随后停止并等待用户在后续对话中触发正式分析；上传只调整归档 HTML 的附件链接与下载处理器，本地原 HTML 保持不变，Review 页面应由 `gsb-analysis` 的共享模板默认展示输入中已有的 Trace，并以共享商品卡组件呈现有效卡、错误卡片和可展开的 response 原始 XML；上传后的 Review 与报告 HTML 默认使用公开 URL。最终阶段只上传已确认且实际存在的产物。每次上传后都用 `report status` 回读。
 9. 三模型 Review 使用 `task create --mode review`；不要把它解释成 A/B GSB。
 
 ## 精确命令
@@ -73,3 +73,5 @@ gsb-cli skill status --target all
 ```
 
 npm 安装会自动以 copy 模式刷新 Skill；`GSB_CLI_SKIP_SKILL_INSTALL=1` 可跳过。
+
+归档含下载链接的报告时，必须使用附件归档能力；源文件不在 workspace 目录下时传 `--workspace-root`。上传前检查附件来源，上传后回读附件字节。历史 HTML 可由此路径修复，先保存原 HTML 与 SHA-256 作为回滚证据。

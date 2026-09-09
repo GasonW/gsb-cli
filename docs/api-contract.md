@@ -170,3 +170,7 @@ Check order:
 3. GitHub `package.json` on `main`
 
 The result is cached under `~/.chatbuy_gsb_eval_cli/update_check.json` by default. `GSB_CLI_NO_UPDATE_CHECK=1` disables the notice.
+
+报告附件归档：`report upload <task-id> <report.html> --workspace-root <workspace>` 解析 `data-workspace-path`（兼容旧 `artifacts/download?path=`），先上传 JSON/JSONL 附件并逐字节回读，再上传改为同目录 SHA-256 附件链接的 HTML。workspace 可从报告所在路径自动识别；缺失来源或路径越界会阻止发布。原始本地 HTML 保持不变。
+
+大于 32 MiB 的附件使用 gzip 分块（每块最多 8 MiB 压缩数据）归档为 JSONL；报告内置下载处理器依次读取、解压并校验原始 SHA-256，再保存原文件名。需要支持 DecompressionStream 的浏览器。归档不会把大文件内嵌到报告正文。
