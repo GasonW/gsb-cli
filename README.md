@@ -319,6 +319,8 @@ input.jsonl
 - `queryId` 在文件内唯一。
 - `taskName`、`versionAName`、`versionBName` 在所有行中一致。
 - `productCardsA/productCardsB` 是 JSON 字符串数组；无商品卡时为 `[]`。
+- 商品卡名称、销量、好评率取商品层，价格取所选 SKU；来源规则见 framework 的 `docs/aidp-gsb-jsonl-contract.md`，转换复用 `build_sku_product_item()`。
+- 数据处理交付先在 framework 运行 `platform_gsb_import_utils.py --acceptance-dir`；上传传 `--acceptance <summary.json>` 校验输入 SHA-256 和本地验收状态。绑定后运行 `dataset verify-task <task-id> --input <input.jsonl> --acceptance <summary.json> --output <server-input.jsonl>`，再由 framework 用 `--remote-input` 生成最终验收报告。旧的直接上传仍兼容；Agent 数据处理交付必须执行验收流程。
 - CSV、XLSX、非标准 JSONL、NDJSON、TSV 需要先转换成统一 JSONL contract。
 
 最小 JSONL 行示例：
@@ -510,3 +512,7 @@ node dist/src/index.js --help
 大于 32 MiB 的附件使用 gzip 分块（每块最多 8 MiB 压缩数据）归档为 JSONL；报告内置下载处理器依次读取、解压并校验原始 SHA-256，再保存原文件名。需要支持 DecompressionStream 的浏览器。归档不会把大文件内嵌到报告正文。
 
 Review 的 `report-evidence-source` 链接声明 workspace JSON 路径和 SHA-256。`report upload` 校验后将证据归档为 `evidence-<sha256>.json`，逐份回读再上传 HTML；单份证据上限 32 MiB。证据文件沿用任务报告可见性，用于页面按题加载回答与 Trace。
+
+商品卡按同题工具结果中的商品与所选 SKU 验收；真实 ID 和商品详情链接按源数据提供情况保留，覆盖率由 framework 数据验收报告统计。
+
+JSON 请求体上限为 256 MiB，按 HTTP JSON 编码后的完整字节数计算。

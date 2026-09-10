@@ -8,6 +8,7 @@ The platform repository owns the HTTP API. This CLI depends on the following sta
 - `GET /api/auth/me`
 - `POST /api/auth/logout`
 - `GET /api/datasets`
+- `GET /tasks/{task_id}/api/source?query=<queryId>&version=A|B` returns the single canonical input row as JSON text in `content`; task-management access is required. `dataset verify-task` compares both sides and task status counts against a locally accepted input, writing a no-clobber server JSONL only after all comparisons succeed.
 - `POST /api/datasets/upload`
 - `POST /api/tasks`
 - `GET /api/tasks/{task_id}`
@@ -75,6 +76,7 @@ Dataset upload response rules:
 Direct browser upload may send exactly one `.json`, `.jsonl`, or `.ndjson` file as multipart form data to the same endpoint. JSON may be a top-level array or an object containing `records`/`items`; each task item keeps only its own record as `sourceText`.
 
 When source Trace exists, `traceA` and `traceB` are required arrays of JSON-serialized `kind=message` object strings. Streaming events are removed before model-run and task-input persistence; invalid Trace values fail validation.
+Product-card `detailed_title` comes from product `title`; `_price` comes from the selected SKU `price`; `sales` and `positive_ratio` come from the product, including its `comment_statistics`. The framework's `build_sku_product_item()` owns extraction. CLI upload preserves the supplied card fields.
 Binding a different raw input over an existing task returns `TASK_INPUT_REVISION_REQUIRED` unless an intentional draft replacement is explicitly requested.
 
 For `mode=review`, multipart input uses the platform-owned `review-jsonl-v1` contract with complete
@@ -176,3 +178,7 @@ The result is cached under `~/.chatbuy_gsb_eval_cli/update_check.json` by defaul
 大于 32 MiB 的附件使用 gzip 分块（每块最多 8 MiB 压缩数据）归档为 JSONL；报告内置下载处理器依次读取、解压并校验原始 SHA-256，再保存原文件名。需要支持 DecompressionStream 的浏览器。归档不会把大文件内嵌到报告正文。
 
 Review 的 `report-evidence-source` 链接声明 workspace JSON 路径和 SHA-256。`report upload` 校验后将证据归档为 `evidence-<sha256>.json`，逐份回读再上传 HTML；单份证据上限 32 MiB。证据文件沿用任务报告可见性，用于页面按题加载回答与 Trace。
+
+商品卡按同题工具结果中的商品与所选 SKU 验收；真实 ID 和商品详情链接按源数据提供情况保留，覆盖率由 framework 数据验收报告统计。
+
+JSON 请求体上限为 256 MiB，按 HTTP JSON 编码后的完整字节数计算。

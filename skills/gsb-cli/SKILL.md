@@ -48,6 +48,7 @@ gsb-cli report status <task-id> --json
 
 1. 优先复用现有登录；只有确认未登录或失效时才执行 `auth login`。Session 和 CSRF 由 CLI 管理，不复制 cookie 或 token。
 2. 新 A/B 评估使用一份 AIDP-compatible `input.jsonl`。先 `dataset check`，通过后再上传。
+   数据处理交付必须按 framework 的 `docs/aidp-gsb-jsonl-contract.md` 生成本地验收报告，上传传 `--acceptance <summary.json>`；绑定后执行 `dataset verify-task`，将回读文件交给 framework 生成 `delivery_pass=true` 的最终验收。交付评估文件、报告、统计 JSON 和逐题明细。商品卡可用性按同题工具结果与所选 SKU 验收，ID 和详情链接覆盖情况见 framework 数据契约。
 3. 准备或接收 `input.jsonl` 时逐侧检查源 Trace；源跑测存在且可按题目和模型可靠对齐时必须保留为 `traceA/traceB`。Trace 只包含完成态 `kind=message`，流式事件需在源 model run 与任务输入写入前清除。精确格式见 `references/data-format.md`。
 4. 一个业务评估只创建一个 task，不按 AIDP / ChatBuy Eval 拆 task。
 5. `task publish` 会先执行 preflight；按失败项修复，不绕过发布门禁。
