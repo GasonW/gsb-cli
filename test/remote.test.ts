@@ -677,6 +677,7 @@ test("task configure combines setup and visibility updates", async () => {
 
 test("CLI reads and downloads archived task reports from the remote platform", async () => {
   const seen: Array<string> = [];
+  const summary = { gsb_both_ge_2: { query_n: 3, candidate_win: 2, same: 1, baseline_win: 0 } };
   const server = createServer(async (req, res) => {
     seen.push(`${req.method} ${req.url}`);
     if (req.method === "GET" && req.url === "/tasks/task_1/api/reports") {
@@ -701,6 +702,9 @@ test("CLI reads and downloads archived task reports from the remote platform", a
       res.setHeader("content-type", "text/html; charset=utf-8");
       res.end("<html><body>report</body></html>");
       return;
+    }
+    if (req.method === "GET" && req.url === "/tasks/task_1/report/decision_summary.json") {
+      return sendJson(res, summary);
     }
     return sendJson(res, { error: "not found" }, 404);
   });
@@ -731,10 +735,16 @@ test("CLI reads and downloads archived task reports from the remote platform", a
     const download = await runCli(["report", "download", "task_1", "--base-url", baseUrl, "--type", "html", "--output", outFile, "--json"], { env });
     assert.equal(download.exitCode, 0);
     assert.equal(readFileSync(outFile, "utf8"), "<html><body>report</body></html>");
+    const summaryFile = join(outDir, "summary.json");
+    const summaryDownload = await runCli(["report", "download", "task_1", "--base-url", baseUrl, "--type", "json", "--output", summaryFile, "--json"], { env });
+    assert.equal(summaryDownload.exitCode, 0);
+    assert.deepEqual(JSON.parse(readFileSync(summaryFile, "utf8")), summary);
     assert.deepEqual(seen, [
       "GET /tasks/task_1/api/reports",
       "GET /tasks/task_1/api/reports",
       "GET /tasks/task_1/report/decision_report.html",
+      "GET /tasks/task_1/api/reports",
+      "GET /tasks/task_1/report/decision_summary.json",
     ]);
   } finally {
     await close(server);
