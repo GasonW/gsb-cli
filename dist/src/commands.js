@@ -1,4 +1,6 @@
 import { bundleReportArtifacts } from "./report-artifacts.js";
+import { isDeepStrictEqual } from "node:util";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -70,6 +72,8 @@ async function dispatch(globals, args) {
             return cmdAuthLogout(globals);
     }
     if (command === "dataset") {
+        if (subcommand === "verify-task")
+            return cmdVerifyTask(globals, rest);
         if (subcommand === "check")
             return cmdDatasetCheck(globals, rest);
         if (subcommand === "upload")
@@ -393,6 +397,47 @@ async function cmdAuthLogout(globals) {
     clearSession(sessionPath(globals.env), globals.profile);
     return { payload: { ok: true, message: "本地 session 已清除", profile: globals.profile }, exitCode: 0 };
 }
+async function cmdVerifyTask(globals, args) {
+    const reader = new OptionReader(args);
+    const input = reader.takeOptionalString("input");
+    const output = reader.takeOptionalString("output");
+    const acceptance = reader.takeOptionalString("acceptance");
+    reader.requireNoUnknown();
+    const task = reader.rest()[0];
+    if (!input || !output || !task || !acceptance)
+        throw new CliUsageError("verify-task requires TASK --input --output --acceptance");
+    if (existsSync(output))
+        throw new CliUsageError("readback output already exists");
+    const text = readFileSync(input, "utf8");
+    const audit = JSON.parse(readFileSync(acceptance, "utf8"));
+    const hash = createHash("sha256").update(text).digest("hex");
+    if (audit.local_pass !== true || audit.input_sha256 !== hash)
+        throw new CliUsageError("acceptance failed or input changed");
+    const check = jsonlCheckPayload(input, redactedArgv(globals.rawArgv));
+    if (!check.ok)
+        return { payload: check, exitCode: 1 };
+    const rows = text.split(/\r?\n/).filter((line) => line.trim()).map((line) => JSON.parse(line));
+    const client = await buildClient(globals, { autoLogin: false });
+    const status = await client.request("GET", `/api/tasks/${encodeURIComponent(task)}/status`);
+    const datasets = status.datasets;
+    const counts = datasets.counts;
+    if (counts.common !== rows.length || counts.a !== rows.length || counts.b !== rows.length)
+        throw new CliUsageError("server row count differs");
+    const remote = [];
+    for (const row of rows) {
+        for (const side of ["A", "B"]) {
+            const data = await client.request("GET", `/tasks/${encodeURIComponent(task)}/api/source?query=${encodeURIComponent(String(row.queryId))}&version=${side}`);
+            const actual = JSON.parse(String(data.content));
+            if (!isDeepStrictEqual(actual, row))
+                throw new CliUsageError(`server input mismatch: ${String(row.queryId)} ${side}`);
+            if (side === "A")
+                remote.push(actual);
+        }
+    }
+    mkdirSync(dirname(resolve(output)), { recursive: true });
+    writeFileSync(output, remote.map((row) => JSON.stringify(row)).join("\n") + "\n", { flag: "wx" });
+    return { payload: { ok: true, task_id: task, checked_sides: rows.length * 2, input_sha256: hash, output }, exitCode: 0 };
+}
 function cmdDatasetCheck(globals, args) {
     const reader = new OptionReader(args);
     const input = reader.takeOptionalString("input");
@@ -431,6 +476,15 @@ function cmdDatasetCheck(globals, args) {
 async function cmdDatasetUpload(globals, args) {
     const reader = new OptionReader(args);
     const input = reader.takeOptionalString("input");
+    const acceptance = reader.takeOptionalString("acceptance");
+    if (acceptance) {
+        if (!input)
+            throw new CliUsageError("--acceptance requires --input");
+        const audit = JSON.parse(readFileSync(acceptance, "utf8"));
+        const hash = createHash("sha256").update(readFileSync(input)).digest("hex");
+        if (audit.local_pass !== true || audit.input_sha256 !== hash)
+            throw new CliUsageError("acceptance failed or input changed");
+    }
     const a = reader.takeOptionalString("a");
     const b = reader.takeOptionalString("b");
     const name = reader.takeOptionalString("name");

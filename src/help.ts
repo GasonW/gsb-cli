@@ -37,7 +37,8 @@ Commands:
   dataset check <dir> --verbose                         # legacy
   dataset check --a <version-a-dir> --b <version-b-dir>
   dataset check --root <root> --version-a <name> --version-b <name>
-  dataset upload --input <aidp-compatible.json|jsonl> --name <name>
+  dataset upload --input <aidp-compatible.json|jsonl> --name <name> [--acceptance <summary.json>]
+  dataset verify-task <task-id> --input <input.jsonl> --acceptance <summary.json> --output <server-input.jsonl>
   dataset upload <dir> --name <name>                    # legacy
   dataset upload --a <version-a-dir> --b <version-b-dir> --name-a <name> --name-b <name>
   dataset list
