@@ -145,11 +145,23 @@ function isCsrfFailure(status, data) {
     return status === 403 && serverError(data).toLowerCase().includes("csrf");
 }
 export function serverError(data) {
-    if (data && typeof data === "object") {
-        const obj = data;
-        return String(obj.error || obj.raw || JSON.stringify(obj));
+    if (typeof data === "string")
+        return data;
+    if (!data || typeof data !== "object")
+        return "请求失败";
+    const obj = data;
+    const error = obj.error ?? obj;
+    if (typeof error === "string")
+        return error;
+    if (error && typeof error === "object") {
+        const detail = error;
+        const message = typeof detail.message === "string" ? detail.message
+            : Array.isArray(detail.message) ? detail.message.filter((item) => typeof item === "string").join("；") : "";
+        const code = typeof detail.code === "string" ? detail.code : "";
+        if (message || code)
+            return `${message || "请求失败"}${code ? ` (${code})` : ""}`;
     }
-    return String(data);
+    return typeof obj.raw === "string" ? obj.raw : "请求失败";
 }
 async function decodeResponse(response) {
     const raw = await response.text();
