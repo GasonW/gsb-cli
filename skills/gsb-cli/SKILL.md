@@ -77,3 +77,5 @@ npm 安装会自动以 copy 模式刷新 Skill；`GSB_CLI_SKIP_SKILL_INSTALL=1` 
 归档含下载链接的报告时，必须使用附件归档能力；源文件不在 workspace 目录下时传 `--workspace-root`。上传前检查附件来源，上传后回读附件字节。历史 HTML 可由此路径修复，先保存原 HTML 与 SHA-256 作为回滚证据。
 
 正式分析摘要中的 `gsb_both_ge_2` 由 framework 生成，包含双侧最终质量分均 ≥2 的 `query_n`、`candidate_win`、`same`、`baseline_win`。CLI 上传与下载原样保留该字段；统计口径由 gsb-analysis 注册工作流维护。
+
+API 错误展示读取结构化 `error.message` 与 `error.code`，兼容字符串错误与消息数组；排查权限错误时保留 HTTP 状态和错误码。

@@ -510,3 +510,5 @@ node dist/src/index.js --help
 大于 32 MiB 的附件使用 gzip 分块（每块最多 8 MiB 压缩数据）归档为 JSONL；报告内置下载处理器依次读取、解压并校验原始 SHA-256，再保存原文件名。需要支持 DecompressionStream 的浏览器。归档不会把大文件内嵌到报告正文。
 
 正式分析摘要中的 `gsb_both_ge_2` 由 framework 生成，包含双侧最终质量分均 ≥2 的 `query_n`、`candidate_win`、`same`、`baseline_win`。CLI 上传与下载原样保留该字段；统计口径由 gsb-analysis 注册工作流维护。
+
+API 错误展示读取结构化 `error.message` 与 `error.code`，兼容字符串错误与消息数组；排查权限错误时保留 HTTP 状态和错误码。
