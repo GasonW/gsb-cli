@@ -516,3 +516,5 @@ Review 的 `report-evidence-source` 链接声明 workspace JSON 路径和 SHA-25
 商品卡按同题工具结果中的商品与所选 SKU 验收；真实 ID 和商品详情链接按源数据提供情况保留，覆盖率由 framework 数据验收报告统计。
 
 JSON 请求体上限为 256 MiB，按 HTTP JSON 编码后的完整字节数计算。
+
+API 错误展示读取结构化 `error.message` 与 `error.code`，兼容字符串错误与消息数组；排查权限错误时保留 HTTP 状态和错误码。

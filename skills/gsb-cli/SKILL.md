@@ -78,3 +78,5 @@ npm 安装会自动以 copy 模式刷新 Skill；`GSB_CLI_SKIP_SKILL_INSTALL=1` 
 归档含下载链接的报告时，必须使用附件归档能力；源文件不在 workspace 目录下时传 `--workspace-root`。上传前检查附件来源，上传后回读附件字节。历史 HTML 可由此路径修复，先保存原 HTML 与 SHA-256 作为回滚证据。
 
 Review 的 `report-evidence-source` 链接声明 workspace JSON 路径和 SHA-256。`report upload` 校验后将证据归档为 `evidence-<sha256>.json`，逐份回读再上传 HTML；单份证据上限 32 MiB。证据文件沿用任务报告可见性，用于页面按题加载回答与 Trace。
+
+API 错误展示读取结构化 `error.message` 与 `error.code`，兼容字符串错误与消息数组；排查权限错误时保留 HTTP 状态和错误码。
