@@ -80,3 +80,7 @@ npm 安装会自动以 copy 模式刷新 Skill；`GSB_CLI_SKIP_SKILL_INSTALL=1` 
 Review 的 `report-evidence-source` 链接声明 workspace JSON 路径和 SHA-256。`report upload` 校验后将证据归档为 `evidence-<sha256>.json`，逐份回读再上传 HTML；单份证据上限 32 MiB。证据文件沿用任务报告可见性，用于页面按题加载回答与 Trace。
 
 API 错误展示读取结构化 `error.message` 与 `error.code`，兼容字符串错误与消息数组；排查权限错误时保留 HTTP 状态和错误码。
+
+Review 报告上传递归收集同目录 `evidence-<sha256>.json`，覆盖按题片段、回答、Trace 与搜索索引；每个文件先校验 SHA-256 和 JSON，再归档及回读。内容缺失或不一致时中止 HTML 上传。
+
+报告附件最多并发 4 份；已归档的内容文件仍逐份回读核对，匹配时复用。全部附件校验完成后才上传 HTML；任一失败均中止 HTML 交付。

@@ -13,6 +13,35 @@ export function bundleReportArtifacts(html: string, reportPath: string, workspac
   }
   const decode = (s: string): string => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
   const escape = (s: string): string => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  // Fragments and Trace are immutable same-directory files. Validate the entire
+  // dependency graph before uploading any HTML, including nested references.
+  const visited = new Set<string>();
+  function includeFile(name: string): void {
+    const match = /^evidence-([a-f0-9]{64})[.]json$/.exec(name);
+    if (!match || visited.has(name)) return;
+    visited.add(name);
+    const base = realpathSync(dirname(resolve(reportPath)));
+    const path = realpathSync(resolve(base, name));
+    if (dirname(path) !== base) throw new Error('Evidence escapes report directory');
+    const bytes = readFileSync(path);
+    if (createHash('sha256').update(bytes).digest('hex') !== match[1]) throw new Error('Evidence checksum mismatch: ' + name);
+    const content = bytes.toString('utf8');
+    if (!Buffer.from(content).equals(bytes)) throw new Error('Evidence must be valid UTF-8');
+    const value: unknown = JSON.parse(content);
+    files[name] = content;
+    if (value && typeof value === 'object' && 'html' in value && typeof value.html === 'string') includeEvidence(value.html);
+  }
+  function includeEvidence(text: string): void {
+    for (const match of text.matchAll(/(?:data-case-src|data-web-href|href)=["'](?:[.][/])?(evidence-[a-f0-9]{64}[.]json)["']/g)) includeFile(match[1]);
+    for (const match of text.matchAll(/<script\b[^>]*class=["']review-phone-data["'][^>]*>([\s\S]*?)<\/script>/g)) {
+      const phone: unknown = JSON.parse(match[1]);
+      if (phone && typeof phone === 'object' && 'trace_source' in phone) {
+        const source = phone.trace_source;
+        if (source && typeof source === 'object' && 'href' in source && typeof source.href === 'string') includeFile(source.href.replace(/^\.\//, ''));
+      }
+    }
+  }
+  includeEvidence(html);
   const rendered = html.replace(/<a\b[^>]*>/gi, tag => {
     const attrs = new Map([...tag.matchAll(/([\w-]+)\s*=\s*(["'])(.*?)\2/gs)].map(m => [m[1], decode(m[3])]));
     const classes = attrs.get('class')?.split(/\s+/) || [];
