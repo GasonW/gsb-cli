@@ -77,3 +77,24 @@ test('bundles lazy report evidence with a verified content address', () => {
   assert.throws(()=>bundleReportArtifacts(html.replace(digest,'0'.repeat(64)),'/tmp/report.html',root),/checksum/);
  } finally {rmSync(root,{recursive:true,force:true});}
 });
+
+test('archives nested case and Trace dependencies and verifies every immutable byte', async () => {
+ const {createHash} = await import('node:crypto');
+ const root = mkdtempSync(join(tmpdir(), 'report-evidence-'));
+ const asset = (value: object): string => {
+  const text = JSON.stringify(value);
+  const name = 'evidence-' + createHash('sha256').update(text).digest('hex') + '.json';
+  writeFileSync(join(root, name), text); return name;
+ };
+ try {
+  const trace = asset({trace_summary: {steps: [{reasoning: '完整 Trace', tool_calls: []}]}});
+  const fragment = asset({html: '<script class="review-phone-data" type="application/json">' + JSON.stringify({response: '正文提及 evidence-' + 'f'.repeat(64) + '.json', trace_source: {href: './' + trace}}) + '</script>'});
+  const html = '<article data-case-src="./' + fragment + '"></article>';
+  const result = bundleReportArtifacts(html, join(root, 'review_report.html'));
+  assert.deepEqual(Object.keys(result.files).sort(), [fragment, trace].sort());
+  writeFileSync(join(root, trace), '{}');
+  assert.throws(() => bundleReportArtifacts(html, join(root, 'review_report.html')), /checksum mismatch/);
+  rmSync(join(root, trace));
+  assert.throws(() => bundleReportArtifacts(html, join(root, 'review_report.html')));
+ } finally {rmSync(root, {recursive: true, force: true});}
+});

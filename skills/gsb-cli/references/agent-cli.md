@@ -388,3 +388,7 @@ gsb-cli report status <task-id> --json
 报告附件归档：`report upload <task-id> <report.html> --workspace-root <workspace>` 解析 `data-workspace-path`（兼容旧 `artifacts/download?path=`），先上传 JSON/JSONL 附件并逐字节回读，再上传改为同目录 SHA-256 附件链接的 HTML。workspace 可从报告所在路径自动识别；缺失来源或路径越界会阻止发布。原始本地 HTML 保持不变。
 
 大于 32 MiB 的附件使用 gzip 分块（每块最多 8 MiB 压缩数据）归档为 JSONL；报告内置下载处理器依次读取、解压并校验原始 SHA-256，再保存原文件名。需要支持 DecompressionStream 的浏览器。归档不会把大文件内嵌到报告正文。
+
+Review 报告上传递归收集同目录 `evidence-<sha256>.json`，覆盖按题片段、回答、Trace 与搜索索引；每个文件先校验 SHA-256 和 JSON，再归档及回读。内容缺失或不一致时中止 HTML 上传。
+
+报告附件最多并发 4 份；已归档的内容文件仍逐份回读核对，匹配时复用。全部附件校验完成后才上传 HTML；任一失败均中止 HTML 交付。

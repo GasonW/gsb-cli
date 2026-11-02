@@ -518,3 +518,7 @@ Review 的 `report-evidence-source` 链接声明 workspace JSON 路径和 SHA-25
 JSON 请求体上限为 256 MiB，按 HTTP JSON 编码后的完整字节数计算。
 
 API 错误展示读取结构化 `error.message` 与 `error.code`，兼容字符串错误与消息数组；排查权限错误时保留 HTTP 状态和错误码。
+
+Review 报告上传递归收集同目录 `evidence-<sha256>.json`，覆盖按题片段、回答、Trace 与搜索索引；每个文件先校验 SHA-256 和 JSON，再归档及回读。内容缺失或不一致时中止 HTML 上传。
+
+报告附件最多并发 4 份；已归档的内容文件仍逐份回读核对，匹配时复用。全部附件校验完成后才上传 HTML；任一失败均中止 HTML 交付。

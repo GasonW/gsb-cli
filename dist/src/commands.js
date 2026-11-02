@@ -1291,11 +1291,24 @@ async function cmdReportUpload(globals, args) {
     }
     const client = await buildClient(globals);
     try {
-        for (const [name, content] of Object.entries(attachments)) {
-            await client.request("POST", `/tasks/${encodeURIComponent(taskId)}/api/reports`, { files: { [name]: content } });
-            const readback = await client.request("GET", `/tasks/${encodeURIComponent(taskId)}/report/${encodeURIComponent(name)}`, undefined, { expectBytes: true });
-            if (!readback.bytes.equals(Buffer.from(content)))
-                throw new Error(`Artifact readback mismatch: ${name}`);
+        const entries = Object.entries(attachments);
+        const previous = entries.length ? await getReportInfo(client, taskId) : {};
+        const existing = new Set([
+            ...(Array.isArray(previous.json_files) ? previous.json_files : []),
+            ...(Array.isArray(previous.html_files) ? previous.html_files : []),
+        ].filter((name) => typeof name === 'string'));
+        for (let offset = 0; offset < entries.length; offset += 4) {
+            const batch = await Promise.allSettled(entries.slice(offset, offset + 4).map(async ([name, content]) => {
+                if (!existing.has(name)) {
+                    await client.request("POST", `/tasks/${encodeURIComponent(taskId)}/api/reports`, { files: { [name]: content } });
+                }
+                const readback = await client.request("GET", `/tasks/${encodeURIComponent(taskId)}/report/${encodeURIComponent(name)}`, undefined, { expectBytes: true });
+                if (!readback.bytes.equals(Buffer.from(content)))
+                    throw new Error(`Artifact readback mismatch: ${name}`);
+            }));
+            const failure = batch.find((entry) => entry.status === 'rejected');
+            if (failure)
+                throw failure.reason;
         }
         const data = await client.request("POST", `/tasks/${encodeURIComponent(taskId)}/api/reports`, { files: fileMap });
         const report = data.report && typeof data.report === "object" ? data.report : {};
